@@ -1,0 +1,3 @@
+*.o
+master_node
+slave_node
