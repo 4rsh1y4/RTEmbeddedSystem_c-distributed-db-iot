@@ -1,0 +1,8 @@
+# Master Configuration
+MASTER_IP=0.0.0.0
+MASTER_PORT=8080
+MASTER_DB=master.db
+
+# Slaves Configuration
+SLAVE1_URL=http://127.0.0.1:8001
+SLAVE2_URL=http://127.0.0.1:8002
