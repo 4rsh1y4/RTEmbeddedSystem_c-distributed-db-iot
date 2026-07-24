@@ -56,7 +56,7 @@ string sql = "SELECT s.sensor_name, r.value, s.unit, r.recorded_at "
             result_data += "\"value\": " + string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1))) + ", ";
             result_data += "\"unit\": \"" + string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2))) + "\", ";
             result_data += "\"recorded_at\": \"" + string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3))) + "\"";
-            result_data += "}";
+            result_data += "}\n";
         }
     }
     sqlite3_finalize(stmt);
