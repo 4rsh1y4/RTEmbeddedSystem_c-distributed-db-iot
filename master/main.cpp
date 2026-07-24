@@ -43,7 +43,11 @@ string query_local_db(const string& sensor_id) {
         return "{\"error\": \"Failed to open Master DB\"}";
     }
 
-    string sql = "SELECT sensor_name, value, unit, recorded_at FROM sensors WHERE sensor_id = ?";
+string sql = "SELECT s.sensor_name, r.value, s.unit, r.recorded_at "
+             "FROM sensors s "
+             "JOIN sensor_readings r ON s.sensor_id = r.sensor_id "
+             "WHERE s.sensor_id = ? "
+             "ORDER BY r.recorded_at DESC LIMIT 1";
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
         sqlite3_bind_text(stmt, 1, sensor_id.c_str(), -1, SQLITE_STATIC);
         if (sqlite3_step(stmt) == SQLITE_ROW) {
