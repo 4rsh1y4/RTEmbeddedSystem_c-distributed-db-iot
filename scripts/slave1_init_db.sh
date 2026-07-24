@@ -1,6 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BASE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 DB_FILE=${1:-"$BASE_DIR/slave/slave1.db"}
 CSV_FILE=${2:-"$BASE_DIR/data/slave1_sensors.csv"}
 NODE_NAME="slave1"

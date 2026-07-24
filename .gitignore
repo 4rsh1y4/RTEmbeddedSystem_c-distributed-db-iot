@@ -1,3 +1,4 @@
+slave/slave_node
+master/master_node
+*.db
 *.o
-master_node
-slave_node
