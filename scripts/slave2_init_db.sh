@@ -1,11 +1,11 @@
 #!/bin/bash
 set -euo pipefail
 
-DB_FILE=${1:-master.db}
-CSV_FILE=${2:-../data/master_sensors.csv}
-NODE_NAME="master"
-NODE_ROLE="MASTER"
-NODE_DESCRIPTION="Main node responsible for receiving operator requests"
+DB_FILE=${1:-"$BASE_DIR/slave/slave2.db"}
+CSV_FILE=${2:-"$BASE_DIR/data/slave2_sensors.csv"}
+NODE_NAME="slave2"
+NODE_ROLE="SLAVE"
+NODE_DESCRIPTION="Second slave node responsible for local sensor data"
 
 if ! command -v sqlite3 >/dev/null 2>&1; then
     echo "Error: sqlite3 is not installed."
@@ -15,7 +15,7 @@ fi
 
 if [ ! -f "$CSV_FILE" ]; then
     echo "Error: CSV file not found: $CSV_FILE"
-    echo "Usage: ./master_init_db.sh <database_file> <csv_file>"
+    echo "Usage: ./slave2_init_db.sh <database_file> <csv_file>"
     exit 1
 fi
 
