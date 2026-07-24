@@ -19,18 +19,19 @@ static string db_path = "";
 string query_database(const string& sensor_id) {
     sqlite3 *db;
     sqlite3_stmt *stmt;
-    string result_data = "{\"error\": \"Not found\"}";
+    // اضافه شدن \n به ارور پیش‌فرض
+    string result_data = "{\"error\": \"Not found\"}\n";
 
     // استفاده از مسیر داینامیک دیتابیس
     if (sqlite3_open(db_path.c_str(), &db) != SQLITE_OK) {
-        return "{\"error\": \"Failed to open DB\"}";
+        return "{\"error\": \"Failed to open DB\"}\n";
     }
 
     string sql = "SELECT s.sensor_name, r.value, s.unit, r.recorded_at "
-                "FROM sensors s "
-                "JOIN sensor_readings r ON s.sensor_id = r.sensor_id "
-                "WHERE s.sensor_id = ? "
-                "ORDER BY r.recorded_at DESC LIMIT 1";
+                 "FROM sensors s "
+                 "JOIN sensor_readings r ON s.sensor_id = r.sensor_id "
+                 "WHERE s.sensor_id = ? "
+                 "ORDER BY r.recorded_at DESC LIMIT 1";
     
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
         sqlite3_bind_text(stmt, 1, sensor_id.c_str(), -1, SQLITE_STATIC);
@@ -66,14 +67,13 @@ static void ev_handler(struct mg_connection *c, int ev, void *ev_data) {
             
             mg_http_reply(c, 200, "Content-Type: application/json\r\n", "%s", db_result.c_str());
         } else {
-            mg_http_reply(c, 404, "", "Not Found");
+            mg_http_reply(c, 404, "", "Not Found\n");
         }
     }
 }
 
 int main(int argc, char *argv[]) {
     // بررسی تعداد آرگومان‌های ورودی
-    // برنامه انتظار دارد 3 آرگومان دریافت کند: IP، Port و مسیر فایل دیتابیس
     if (argc < 4) {
         cerr << "Usage: " << argv[0] << " <IP> <PORT> <DB_PATH>" << endl;
         cerr << "Example: " << argv[0] << " 0.0.0.0 8001 slave1.db" << endl;
@@ -83,7 +83,7 @@ int main(int argc, char *argv[]) {
     // دریافت مقادیر از خط فرمان
     string ip = argv[1];
     string port = argv[2];
-    db_path = argv[3]; // مقداردهی مسیر دیتابیس
+    db_path = argv[3];
 
     // ساخت آدرس کامل سرور به صورت داینامیک
     string url_str = "http://" + ip + ":" + port;

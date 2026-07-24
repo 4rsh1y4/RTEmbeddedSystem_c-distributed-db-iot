@@ -36,18 +36,19 @@ void load_config(const string& filename) {
 string query_local_db(const string& sensor_id) {
     sqlite3 *db;
     sqlite3_stmt *stmt;
-    string result_data = "{\"error\": \"Not found\"}";
+    // اضافه شدن \n به ارور پیش‌فرض
+    string result_data = "{\"error\": \"Not found\"}\n";
     string db_path = config["MASTER_DB"];
 
     if (sqlite3_open(db_path.c_str(), &db) != SQLITE_OK) {
-        return "{\"error\": \"Failed to open Master DB\"}";
+        return "{\"error\": \"Failed to open Master DB\"}\n";
     }
 
-string sql = "SELECT s.sensor_name, r.value, s.unit, r.recorded_at "
-             "FROM sensors s "
-             "JOIN sensor_readings r ON s.sensor_id = r.sensor_id "
-             "WHERE s.sensor_id = ? "
-             "ORDER BY r.recorded_at DESC LIMIT 1";
+    string sql = "SELECT s.sensor_name, r.value, s.unit, r.recorded_at "
+                 "FROM sensors s "
+                 "JOIN sensor_readings r ON s.sensor_id = r.sensor_id "
+                 "WHERE s.sensor_id = ? "
+                 "ORDER BY r.recorded_at DESC LIMIT 1";
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
         sqlite3_bind_text(stmt, 1, sensor_id.c_str(), -1, SQLITE_STATIC);
         if (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -78,17 +79,15 @@ static void slave_client_handler(struct mg_connection *nc, int ev, void *ev_data
 
     if (ev == MG_EV_CONNECT) {
         cout << "[Master->Slave" << state->current_slave << "] Connected. Sending HTTP request..." << endl;
-        // ارسال درخواست HTTP با ساختار استاندارد Mongoose Client
         mg_printf(nc, "GET /api/sensor?id=%s HTTP/1.0\r\nHost: localhost\r\n\r\n", state->sensor_id.c_str());
     } 
     else if (ev == MG_EV_HTTP_MSG) {
         struct mg_http_message *hm = (struct mg_http_message *) ev_data;
-        
-        // اصلاح اصلی: استفاده از hm->body.buf به جای hm->body.ptr
         string response(hm->body.buf, hm->body.len);
         
         if (response.find("\"error\"") == string::npos && !response.empty()) {
             cout << "[Master] Data found in Slave " << state->current_slave << "! Forwarding to client." << endl;
+            // در اینجا response خودش از سمت اسلیو \n داره
             mg_http_reply(state->client_c, 200, "Content-Type: application/json\r\n", "%s", response.c_str());
             delete state;
             nc->fn_data = nullptr;
@@ -98,16 +97,15 @@ static void slave_client_handler(struct mg_connection *nc, int ev, void *ev_data
                 state->current_slave = 2;
                 string target_url = config["SLAVE2_URL"] + "/api/sensor?id=" + state->sensor_id;
                 
-                // برقراری اتصال به Slave 2
                 struct mg_connection *c2 = mg_http_connect(nc->mgr, target_url.c_str(), slave_client_handler, state);
                 if (!c2) {
-                    mg_http_reply(state->client_c, 500, "Content-Type: application/json\r\n", "{\"error\": \"Failed to connect to Slave 2\"}");
+                    mg_http_reply(state->client_c, 500, "Content-Type: application/json\r\n", "{\"error\": \"Failed to connect to Slave 2\"}\n");
                     delete state;
                 }
                 nc->fn_data = nullptr;
             } else {
                 cout << "[Master] Data not found in any Slave. Returning 404." << endl;
-                mg_http_reply(state->client_c, 404, "Content-Type: application/json\r\n", "{\"error\": \"Sensor data not found in the network\"}");
+                mg_http_reply(state->client_c, 404, "Content-Type: application/json\r\n", "{\"error\": \"Sensor data not found in the network\"}\n");
                 delete state;
                 nc->fn_data = nullptr;
             }
@@ -121,12 +119,12 @@ static void slave_client_handler(struct mg_connection *nc, int ev, void *ev_data
             string target_url = config["SLAVE2_URL"] + "/api/sensor?id=" + state->sensor_id;
             struct mg_connection *c2 = mg_http_connect(nc->mgr, target_url.c_str(), slave_client_handler, state);
             if (!c2) {
-                mg_http_reply(state->client_c, 500, "Content-Type: application/json\r\n", "{\"error\": \"Network routing failed\"}");
+                mg_http_reply(state->client_c, 500, "Content-Type: application/json\r\n", "{\"error\": \"Network routing failed\"}\n");
                 delete state;
             }
             nc->fn_data = nullptr;
         } else {
-            mg_http_reply(state->client_c, 500, "Content-Type: application/json\r\n", "{\"error\": \"Network routing failed\"}");
+            mg_http_reply(state->client_c, 500, "Content-Type: application/json\r\n", "{\"error\": \"Network routing failed\"}\n");
             delete state;
             nc->fn_data = nullptr;
         }
@@ -145,14 +143,12 @@ static void ev_handler(struct mg_connection *c, int ev, void *ev_data) {
             string sensor_id(id_var);
             cout << "\n[Master] New request received for sensor ID: " << sensor_id << endl;
             
-            // گام اول: جستجو در دیتابیس Master
             string local_result = query_local_db(sensor_id);
             
             if (local_result.find("\"error\"") == string::npos) {
                 cout << "[Master] Data found locally. Instant response." << endl;
                 mg_http_reply(c, 200, "Content-Type: application/json\r\n", "%s", local_result.c_str());
             } else {
-                // گام دوم: شروع فرآیند مسیریابی غیرهمزمان به Slaveها
                 cout << "[Master] Data not local. Starting async routing..." << endl;
                 
                 RequestState *state = new RequestState{c, sensor_id, 1};
@@ -161,12 +157,12 @@ static void ev_handler(struct mg_connection *c, int ev, void *ev_data) {
                 struct mg_connection *sc = mg_http_connect(c->mgr, target_url.c_str(), slave_client_handler, state);
                 if (!sc) {
                     cout << "[Master] Failed to initiate connection to Slave 1." << endl;
-                    mg_http_reply(c, 500, "Content-Type: application/json\r\n", "{\"error\": \"Failed to reach Slaves\"}");
+                    mg_http_reply(c, 500, "Content-Type: application/json\r\n", "{\"error\": \"Failed to reach Slaves\"}\n");
                     delete state;
                 }
             }
         } else {
-            mg_http_reply(c, 404, "", "Not Found");
+            mg_http_reply(c, 404, "", "Not Found\n");
         }
     }
 }
