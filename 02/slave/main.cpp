@@ -9,7 +9,6 @@
 #include <sqlite3.h>
 #include <iostream>
 #include <string>
-#include <chrono> // برای محاسبه زمان پاسخ‌دهی
 #include <libmemcached/memcached.h> // کتابخانه Memcached
 
 using namespace std;
@@ -21,7 +20,7 @@ static string db_path = "";
 memcached_st *memc = nullptr; 
 
 // ==========================================
-// توابع کمکی برای Memcached و زمان‌سنجی
+// توابع کمکی برای Memcached
 // ==========================================
 
 // خواندن از کش
@@ -42,7 +41,6 @@ string get_from_cache(const string& key) {
 }
 
 // نوشتن در کش (TTL = 60 ثانیه)
-
 void set_to_cache(const string& key, const string& value) {
     if (!memc) return;
     memcached_return_t rc = memcached_set(memc, key.c_str(), key.length(), value.c_str(), value.length(), 60, 0);
@@ -51,19 +49,6 @@ void set_to_cache(const string& key, const string& value) {
     } else {
         cout << "[Slave] Successfully stored key '" << key << "' in cache." << endl;
     }
-}
-
-// تابع کمکی برای اضافه کردن زمان پاسخ‌دهی به انتهای رشته JSON
-string inject_time_into_json(const string& json, double time_ms) {
-    size_t pos = json.find_last_of('}');
-    if (pos != string::npos) {
-        string result = json.substr(0, pos);
-        char time_buf[32];
-        snprintf(time_buf, sizeof(time_buf), "%.3f", time_ms);
-        result += ", \"response_time_ms\": " + string(time_buf) + "}\n";
-        return result;
-    }
-    return json;
 }
 
 // ==========================================
@@ -119,22 +104,15 @@ static void ev_handler(struct mg_connection *c, int ev, void *ev_data) {
             string sensor_id(id_var);
             cout << "\n[Slave] Received query for sensor ID: " << sensor_id << endl;
             
-            // ۱. شروع تایمر
-            auto start_time = std::chrono::high_resolution_clock::now();
             string cache_key = "sensor_" + sensor_id;
             
-            // ۲. بررسی کش Memcached
+            // ۱. بررسی کش Memcached
             string cached_data = get_from_cache(cache_key);
             
             if (!cached_data.empty()) {
                 // ---- [Cache Hit] ----
-                auto end_time = std::chrono::high_resolution_clock::now();
-                double time_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();
-                
-                cout << "[Slave] Cache HIT! Data retrieved in " << time_ms << " ms." << endl;
-                
-                string final_json = inject_time_into_json(cached_data, time_ms);
-                mg_http_reply(c, 200, "Content-Type: application/json\r\n", "%s", final_json.c_str());
+                cout << "[Slave] Cache HIT! Data retrieved from Memcached." << endl;
+                mg_http_reply(c, 200, "Content-Type: application/json\r\n", "%s", cached_data.c_str());
             } 
             else {
                 // ---- [Cache Miss] ----
@@ -144,21 +122,12 @@ static void ev_handler(struct mg_connection *c, int ev, void *ev_data) {
                 if (db_result.find("\"error\"") == string::npos) {
                     // ذخیره داده در کش برای درخواست‌های بعدی
                     set_to_cache(cache_key, db_result);
+                    cout << "[Slave] Data found in SQLite and stored in cache." << endl;
                     
-                    auto end_time = std::chrono::high_resolution_clock::now();
-                    double time_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();
-                    
-                    cout << "[Slave] Data found in SQLite. Stored in cache. Time: " << time_ms << " ms." << endl;
-                    
-                    string final_json = inject_time_into_json(db_result, time_ms);
-                    mg_http_reply(c, 200, "Content-Type: application/json\r\n", "%s", final_json.c_str());
+                    mg_http_reply(c, 200, "Content-Type: application/json\r\n", "%s", db_result.c_str());
                 } else {
                     // در دیتابیس هم پیدا نشد
-                    auto end_time = std::chrono::high_resolution_clock::now();
-                    double time_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();
-                    
-                    string final_json = inject_time_into_json(db_result, time_ms); 
-                    mg_http_reply(c, 404, "Content-Type: application/json\r\n", "%s", final_json.c_str());
+                    mg_http_reply(c, 404, "Content-Type: application/json\r\n", "%s", db_result.c_str());
                 }
             }
         } else {
