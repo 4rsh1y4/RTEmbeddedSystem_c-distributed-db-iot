@@ -34,6 +34,17 @@ sudo systemctl status mosquitto
 
 ---
 
+### پیکربندی و اعمال تنظیمات بروکر (Mosquitto)
+برای عملکرد صحیح سیستم (ارتباط کلاینت‌ها بدون نیاز به پسورد روی پورت پیش‌فرض)، فایل پیکربندی `mosquitto.conf` در پوشه ریشه پروژه قرار داده شده است.
+برای اعمال این تنظیمات روی بروکرِ سیستم، فایل را در مسیر `conf.d` کپی کرده و سرویس را ری‌استارت کنید:
+
+<div dir="ltr">
+
+```bash
+sudo cp mosquitto.conf /etc/mosquitto/conf.d/iot_project.conf
+sudo systemctl restart mosquitto
+```
+
 ## 2. ساختار Topicهای طراحی شده
 در این سیستم، نود Master نقش یک پل ارتباطی (Bridge) را ایفا می‌کند. ساختار تاپیک‌ها به شکل زیر طراحی شده است:
 
