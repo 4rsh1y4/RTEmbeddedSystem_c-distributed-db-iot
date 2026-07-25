@@ -300,3 +300,4 @@ int main(int argc, char *argv[]) {
         memcached_free(memc);
     }
     return 0;
+}

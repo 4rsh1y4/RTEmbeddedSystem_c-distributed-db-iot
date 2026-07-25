@@ -4,7 +4,7 @@
 # Author: Arshia Noroozi (402170562)
 # Description: Benchmarks sensor read times comparing Cache Misses (Round 1) and Cache Hits (Round 2).
 
-MASTER_URL="http://127.0.0.1:8080/api/sensor"
+MASTER_URL="http://192.168.54.136:8080/api/sensor"
 # مجموعه‌ای از IDهای سنسورها (ترکیبی از Master و Slaveها برای تست جامع شبکه)
 SENSOR_IDS=(101 102 201 204 301 304)
 
@@ -44,7 +44,7 @@ run_round() {
         if [ -z "$TIME_MS" ]; then
             echo "[Failed] Data not found or server error."
         else
-            printf "-> Response Time: %6s ms\n" "$TIME_MS"
+            printf -- "-> Response Time: %6s ms\n" "$TIME_MS"
             total_time=$(echo "$total_time + $TIME_MS" | bc -l 2>/dev/null || awk "BEGIN {print $total_time + $TIME_MS}")
             count=$((count + 1))
         fi

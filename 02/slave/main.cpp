@@ -42,9 +42,15 @@ string get_from_cache(const string& key) {
 }
 
 // نوشتن در کش (TTL = 60 ثانیه)
+
 void set_to_cache(const string& key, const string& value) {
     if (!memc) return;
-    memcached_set(memc, key.c_str(), key.length(), value.c_str(), value.length(), 60, 0);
+    memcached_return_t rc = memcached_set(memc, key.c_str(), key.length(), value.c_str(), value.length(), 60, 0);
+    if (rc != MEMCACHED_SUCCESS) {
+        cerr << "[Slave ERROR] memcached_set failed for key '" << key << "': " << memcached_strerror(memc, rc) << endl;
+    } else {
+        cout << "[Slave] Successfully stored key '" << key << "' in cache." << endl;
+    }
 }
 
 // تابع کمکی برای اضافه کردن زمان پاسخ‌دهی به انتهای رشته JSON
