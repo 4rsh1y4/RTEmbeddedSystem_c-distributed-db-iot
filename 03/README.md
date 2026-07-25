@@ -22,7 +22,7 @@ sudo apt install -y build-essential sqlite3 libsqlite3-dev memcached libmemcache
 </div>
 
 پس از نصب، سرویس‌های Memcached و Mosquitto معمولاً به صورت خودکار اجرا می‌شوند. برای اطمینان از وضعیت اجرای آن‌ها (پورت‌های 11211 و 1883) می‌توانید از دستورات زیر استفاده کنید:
-
+ 
 <div dir="ltr">
 
 ```bash
@@ -44,6 +44,11 @@ sudo systemctl status mosquitto
 sudo cp mosquitto.conf /etc/mosquitto/conf.d/iot_project.conf
 sudo systemctl restart mosquitto
 ```
+**نکته مهم در خصوص اجرای خودکار:**
+
+به منظور سهولت در راه‌اندازی، اسکریپت `build_and_run.sh` به گونه‌ای توسعه یافته است که پس از تشخیص نود Master، به صورت کاملاً خودکار فایل کانفیگ `mosquitto.conf` را در مسیر استاندارد لینوکس (`/etc/mosquitto/conf.d/`) کپی کرده و سرویس بروکر را ری‌استارت می‌کند. بنابراین **نیازی به اعمال دستی این تنظیمات نیست.**
+
+*(در صورت نیاز به بررسی دستی، کدهای مربوط به این عملیات در بخش master اسکریپت build_and_run.sh مشخص است.).*
 
 ## 2. ساختار Topicهای طراحی شده
 در این سیستم، نود Master نقش یک پل ارتباطی (Bridge) را ایفا می‌کند. ساختار تاپیک‌ها به شکل زیر طراحی شده است:

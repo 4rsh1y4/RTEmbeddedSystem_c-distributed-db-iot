@@ -2,14 +2,14 @@
 
 # Script: build_and_run.sh
 # Author: Arshia Noroozi (402170562)
-# Description: Auto-detects node identity, initializes DB & Memcached, compiles via Makefile & launches service.
+# Description: Auto-detects node identity, initializes DB, Memcached, MQTT config, compiles & launches.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BASE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 CONFIG_FILE="$BASE_DIR/master/config.txt"
 
 echo "=========================================="
-echo "    Distributed IoT System Bootstrapper (Cache-Layer) "
+echo "    Distributed IoT System Bootstrapper (MQTT-Layer) "
 echo "=========================================="
 
 if [ ! -f "$CONFIG_FILE" ]; then
@@ -46,20 +46,29 @@ echo "=========================================="
 
 case "$NODE_ROLE" in
     "master")
-        echo -e "\n[1/4] Initializing Master Database..."
+        echo -e "\n[1/5] Initializing Master Database..."
         chmod +x "$SCRIPT_DIR/master_init_db.sh"
         "$SCRIPT_DIR/master_init_db.sh"
 
-        echo -e "\n[2/4] Initializing Memcached Cache Layer..."
+        echo -e "\n[2/5] Initializing Memcached Cache Layer..."
         chmod +x "$SCRIPT_DIR/memcached_init.sh"
         "$SCRIPT_DIR/memcached_init.sh"
 
-        echo -e "\n[3/4] Compiling Master executable via Makefile..."
+        echo -e "\n[3/5] Applying MQTT (Mosquitto) Configuration..."
+        if [ -f "$BASE_DIR/mosquitto.conf" ]; then
+            sudo cp "$BASE_DIR/mosquitto.conf" /etc/mosquitto/conf.d/iot_project.conf
+            sudo systemctl restart mosquitto
+            echo "Mosquitto configured and restarted successfully."
+        else
+            echo "Warning: mosquitto.conf not found in root directory!"
+        fi
+
+        echo -e "\n[4/5] Compiling Master executable via Makefile..."
         cd "$BASE_DIR/master" || exit 1
         make clean > /dev/null 2>&1
         make
 
-        echo -e "\n[4/4] Starting Master Service..."
+        echo -e "\n[5/5] Starting Master Service..."
         ./master_node config.txt
         ;;
 
