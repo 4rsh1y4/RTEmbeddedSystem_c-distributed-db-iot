@@ -4,15 +4,32 @@
 # Author: Arshia Noroozi (402170562)
 # Description: Benchmarks sensor read times comparing Cache Misses (Round 1) and Cache Hits (Round 2).
 
-MASTER_URL="http://192.168.54.136:8080/api/sensor"
-# مجموعه‌ای از IDهای سنسورها (ترکیبی از Master و Slaveها برای تست جامع شبکه)
+CONFIG_FILE=${1:-"../master/config.txt"}
+
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "[!] Error: Config file '$CONFIG_FILE' not found!"
+    exit 1
+fi
+
+MASTER_IP=$(grep -E '^MASTER_IP=' "$CONFIG_FILE" | cut -d '=' -f 2 | tr -d ' \r')
+MASTER_PORT=$(grep -E '^MASTER_PORT=' "$CONFIG_FILE" | cut -d '=' -f 2 | tr -d ' \r')
+
+if [ -z "$MASTER_IP" ] || [ -z "$MASTER_PORT" ]; then
+    echo "[!] Error: MASTER_IP or MASTER_PORT is missing in '$CONFIG_FILE'"
+    exit 1
+fi
+
+MASTER_URL="http://${MASTER_IP}:${MASTER_PORT}/api/sensor"
+
 SENSOR_IDS=(101 102 201 204 301 304)
 
 echo "====================================================="
 echo "        Memcached Benchmark Test (Read Speed)        "
 echo "====================================================="
+echo "[*] Loaded Configuration from: $CONFIG_FILE"
+echo "[*] Targeting API Gateway: $MASTER_URL"
+echo "====================================================="
 
-# پاک‌سازی کش قبل از تست برای اطمینان از صحت دور اول
 echo "[*] Flushing Memcached to ensure a fair test..."
 if command -v nc >/dev/null 2>&1; then
     echo -e "flush_all\r" | nc -q 1 127.0.0.1 11211 >/dev/null 2>&1 || true
@@ -22,7 +39,6 @@ fi
 echo "[*] Cache is empty. Starting benchmark..."
 echo ""
 
-# تابع اجرای یک دور تست
 run_round() {
     local round_name=$1
     echo "-----------------------------------------------------"
@@ -35,10 +51,8 @@ run_round() {
     for id in "${SENSOR_IDS[@]}"; do
         printf "Querying Sensor %-5s " "$id"
         
-        # ارسال درخواست و دریافت خروجی JSON
         RESPONSE=$(curl -s "$MASTER_URL?id=$id")
         
-        # استخراج مقدار زمان از داخل رشته JSON
         TIME_MS=$(echo "$RESPONSE" | grep -o '"response_time_ms":[ 0-9.]*' | cut -d':' -f2 | tr -d ' }')
         
         if [ -z "$TIME_MS" ]; then
@@ -50,7 +64,6 @@ run_round() {
         fi
     done
 
-    # محاسبه میانگین سرعت این دور
     if [ "$count" -gt 0 ]; then
         local avg_time=$(awk "BEGIN {printf \"%.3f\", $total_time / $count}")
         echo "-----------------------------------------------------"
@@ -60,10 +73,8 @@ run_round() {
     echo ""
 }
 
-# اجرای دور اول (توقع می‌رود از SQLite خوانده شود - Cache Miss)
 run_round "Round 1 (Expected Cache Miss / SQLite DB)"
 
-# اجرای دور دوم (توقع می‌رود از Memcached خوانده شود - Cache Hit)
 run_round "Round 2 (Expected Cache Hit / Memcached)"
 
 echo "====================================================="

@@ -139,11 +139,7 @@ static void slave_client_handler(struct mg_connection *nc, int ev, void *ev_data
         if (response.find("\"error\"") == string::npos && !response.empty()) {
             cout << "[Master] Data found in Slave " << state->current_slave << "! Forwarding to client." << endl;
             
-            // ذخیره داده‌های دریافتی از Slave در کش Master برای دسترسی سریع‌تر در آینده
-            string cache_key = "sensor_" + state->sensor_id;
-            set_to_cache(cache_key, response);
-
-            // محاسبه زمان پاسخ‌دهی
+            // محاسبه زمان پاسخ‌دهی بدون ذخیره در کش مستر
             auto end_time = std::chrono::high_resolution_clock::now();
             double time_ms = std::chrono::duration<double, std::milli>(end_time - state->start_time).count();
             
@@ -208,7 +204,7 @@ static void ev_handler(struct mg_connection *c, int ev, void *ev_data) {
             auto start_time = std::chrono::high_resolution_clock::now();
             string cache_key = "sensor_" + sensor_id;
 
-            // ۲. بررسی لایه کش (Memcached)
+            // ۲. بررسی لایه کش (Memcached) فقط برای داده‌های لوکال مستر
             string cached_data = get_from_cache(cache_key);
 
             if (!cached_data.empty()) {
@@ -230,7 +226,7 @@ static void ev_handler(struct mg_connection *c, int ev, void *ev_data) {
                     // داده در دیتابیس لوکال یافت شد
                     cout << "[Master] Data found locally. Storing in Cache..." << endl;
                     
-                    // ذخیره در کش برای دفعات بعد
+                    // ذخیره در کش برای دفعات بعد (فقط برای داده‌های لوکال)
                     set_to_cache(cache_key, local_result);
                     
                     auto end_time = std::chrono::high_resolution_clock::now();
