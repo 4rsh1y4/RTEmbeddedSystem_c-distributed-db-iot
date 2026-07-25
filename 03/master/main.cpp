@@ -2,7 +2,7 @@
  * Author: Arshia Noroozi
  * Student ID: 402170562
  * File: master/main.cpp
- * Description: API Gateway (Master) node with Async Routing and Memcached Layer
+ * Description: API Gateway (Master) node with MQTT & HTTP integration, Memcached and Async Routing
  */
 
 #include "mongoose.h"
@@ -11,27 +11,26 @@
 #include <fstream>
 #include <string>
 #include <map>
-#include <chrono> // برای محاسبه زمان پاسخ‌دهی
-#include <libmemcached/memcached.h> // کتابخانه Memcached
+#include <chrono>
+#include <libmemcached/memcached.h>
+#include <mosquitto.h> // کتابخانه MQTT
 
 using namespace std;
 
 map<string, string> config;
-memcached_st *memc = nullptr; // متغیر سراسری کش
-
+memcached_st *memc = nullptr; 
+struct mosquitto *mosq = nullptr; // متغیر سراسری کلاینت MQTT
+struct mg_mgr mgr;                // متغیر سراسری Mongoose Manager (جدید)
 // ==========================================
-// توابع کمکی برای Memcached
+// توابع کمکی برای Memcached و زمان
 // ==========================================
 
-// خواندن از کش
 string get_from_cache(const string& key) {
     if (!memc) return "";
     size_t return_value_length;
     uint32_t flags;
     memcached_return_t rc;
-    
     char* mem_val = memcached_get(memc, key.c_str(), key.length(), &return_value_length, &flags, &rc);
-    
     if (rc == MEMCACHED_SUCCESS && mem_val) {
         string val(mem_val, return_value_length);
         free(mem_val);
@@ -40,13 +39,11 @@ string get_from_cache(const string& key) {
     return "";
 }
 
-// نوشتن در کش (TTL = 60 ثانیه)
 void set_to_cache(const string& key, const string& value) {
     if (!memc) return;
     memcached_set(memc, key.c_str(), key.length(), value.c_str(), value.length(), 60, 0);
 }
 
-// تابع کمکی برای اضافه کردن زمان پاسخ‌دهی به انتهای رشته JSON
 string inject_time_into_json(const string& json, double time_ms) {
     size_t pos = json.find_last_of('}');
     if (pos != string::npos) {
@@ -91,10 +88,8 @@ string query_local_db(const string& sensor_id) {
     }
 
     string sql = "SELECT s.sensor_name, r.value, s.unit, r.recorded_at "
-                 "FROM sensors s "
-                 "JOIN sensor_readings r ON s.sensor_id = r.sensor_id "
-                 "WHERE s.sensor_id = ? "
-                 "ORDER BY r.recorded_at DESC LIMIT 1";
+                 "FROM sensors s JOIN sensor_readings r ON s.sensor_id = r.sensor_id "
+                 "WHERE s.sensor_id = ? ORDER BY r.recorded_at DESC LIMIT 1";
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
         sqlite3_bind_text(stmt, 1, sensor_id.c_str(), -1, SQLITE_STATIC);
         if (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -112,24 +107,32 @@ string query_local_db(const string& sensor_id) {
 }
 
 // ==========================================
-// مدیریت ارتباطات و رویدادهای سرور
+// مدیریت ارتباطات با Slaveها
 // ==========================================
 
-// ساختاری برای نگهداری وضعیت درخواست‌هایی که به Slaveها فوروارد می‌شوند
 struct RequestState {
-    struct mg_connection *client_c; // اتصال کلاینت اصلی
-    string sensor_id;               // آیدی سنسور مورد جستجو
-    int current_slave;              // شماره Slave در حال بررسی
-    std::chrono::time_point<std::chrono::high_resolution_clock> start_time; // زمان شروع درخواست
+    struct mg_connection *client_c; // اتصال HTTP کلاینت اصلی
+    bool is_mqtt;                   // فلگ برای تشخیص اینکه درخواست از MQTT بوده یا HTTP
+    string sensor_id;
+    int current_slave;
+    std::chrono::time_point<std::chrono::high_resolution_clock> start_time;
 };
 
-// تابع مدیریت رویدادهای مربوط به ارتباط Master با Slaveها
+// ارسال پاسخ نهایی به کلاینت (HTTP یا MQTT)
+void send_final_response(RequestState *state, const string& json_res) {
+    if (state->is_mqtt) {
+        // QoS 1 تعیین شده برای ارسال پاسخ
+        mosquitto_publish(mosq, NULL, "sensor/response", json_res.length(), json_res.c_str(), 1, false);
+    } else {
+        mg_http_reply(state->client_c, 200, "Content-Type: application/json\r\n", "%s", json_res.c_str());
+    }
+}
+
 static void slave_client_handler(struct mg_connection *nc, int ev, void *ev_data) {
     RequestState *state = (RequestState *) nc->fn_data;
     if (state == nullptr) return;
 
     if (ev == MG_EV_CONNECT) {
-        cout << "[Master->Slave" << state->current_slave << "] Connected. Sending HTTP request..." << endl;
         mg_printf(nc, "GET /api/sensor?id=%s HTTP/1.0\r\nHost: localhost\r\n\r\n", state->sensor_id.c_str());
     } 
     else if (ev == MG_EV_HTTP_MSG) {
@@ -137,32 +140,27 @@ static void slave_client_handler(struct mg_connection *nc, int ev, void *ev_data
         string response(hm->body.buf, hm->body.len);
         
         if (response.find("\"error\"") == string::npos && !response.empty()) {
-            cout << "[Master] Data found in Slave " << state->current_slave << "! Forwarding to client." << endl;
-            
-            // محاسبه زمان پاسخ‌دهی بدون ذخیره در کش مستر
+            cout << "[Master] Data found in Slave " << state->current_slave << "!" << endl;
             auto end_time = std::chrono::high_resolution_clock::now();
             double time_ms = std::chrono::duration<double, std::milli>(end_time - state->start_time).count();
             
             string final_json = inject_time_into_json(response, time_ms);
-            mg_http_reply(state->client_c, 200, "Content-Type: application/json\r\n", "%s", final_json.c_str());
+            send_final_response(state, final_json);
             
             delete state;
             nc->fn_data = nullptr;
         } else {
             if (state->current_slave == 1) {
-                cout << "[Master] Not found in Slave 1. Checking Slave 2..." << endl;
                 state->current_slave = 2;
                 string target_url = config["SLAVE2_URL"] + "/api/sensor?id=" + state->sensor_id;
-                
                 struct mg_connection *c2 = mg_http_connect(nc->mgr, target_url.c_str(), slave_client_handler, state);
                 if (!c2) {
-                    mg_http_reply(state->client_c, 500, "Content-Type: application/json\r\n", "{\"error\": \"Failed to connect to Slave 2\"}\n");
+                    send_final_response(state, "{\"error\": \"Failed to connect to Slave 2\"}\n");
                     delete state;
                 }
                 nc->fn_data = nullptr;
             } else {
-                cout << "[Master] Data not found in any Slave. Returning 404." << endl;
-                mg_http_reply(state->client_c, 404, "Content-Type: application/json\r\n", "{\"error\": \"Sensor data not found in the network\"}\n");
+                send_final_response(state, "{\"error\": \"Sensor data not found in the network\"}\n");
                 delete state;
                 nc->fn_data = nullptr;
             }
@@ -171,85 +169,90 @@ static void slave_client_handler(struct mg_connection *nc, int ev, void *ev_data
     }
     else if (ev == MG_EV_ERROR) {
         if (state->current_slave == 1) {
-            cout << "[Master] Slave 1 unreachable. Fallback to Slave 2..." << endl;
             state->current_slave = 2;
             string target_url = config["SLAVE2_URL"] + "/api/sensor?id=" + state->sensor_id;
             struct mg_connection *c2 = mg_http_connect(nc->mgr, target_url.c_str(), slave_client_handler, state);
             if (!c2) {
-                mg_http_reply(state->client_c, 500, "Content-Type: application/json\r\n", "{\"error\": \"Network routing failed\"}\n");
+                send_final_response(state, "{\"error\": \"Network routing failed\"}\n");
                 delete state;
             }
             nc->fn_data = nullptr;
         } else {
-            mg_http_reply(state->client_c, 500, "Content-Type: application/json\r\n", "{\"error\": \"Network routing failed\"}\n");
+            send_final_response(state, "{\"error\": \"Network routing failed\"}\n");
             delete state;
             nc->fn_data = nullptr;
         }
     }
 }
 
-// Event Handler اصلی Master
-static void ev_handler(struct mg_connection *c, int ev, void *ev_data) {
+// تابع پردازش منطق اصلی یافتن داده (مشترک بین HTTP و MQTT)
+void process_sensor_request(string sensor_id, RequestState* state) {
+    string cache_key = "sensor_" + sensor_id;
+    string cached_data = get_from_cache(cache_key);
+
+    if (!cached_data.empty()) {
+        auto end_time = std::chrono::high_resolution_clock::now();
+        double time_ms = std::chrono::duration<double, std::milli>(end_time - state->start_time).count();
+        cout << "[Master] Cache HIT! Time: " << time_ms << " ms." << endl;
+        string final_json = inject_time_into_json(cached_data, time_ms);
+        send_final_response(state, final_json);
+        delete state;
+    } 
+    else {
+        cout << "[Master] Cache MISS! Checking local SQLite database..." << endl;
+        string local_result = query_local_db(sensor_id);
+        
+        if (local_result.find("\"error\"") == string::npos) {
+            set_to_cache(cache_key, local_result);
+            auto end_time = std::chrono::high_resolution_clock::now();
+            double time_ms = std::chrono::duration<double, std::milli>(end_time - state->start_time).count();
+            string final_json = inject_time_into_json(local_result, time_ms);
+            send_final_response(state, final_json);
+            delete state;
+        } else {
+            cout << "[Master] Data not local. Routing to Slaves..." << endl;
+            // استفاده مستقیم از mgr سراسری
+            string target_url = config["SLAVE1_URL"] + "/api/sensor?id=" + sensor_id;
+            struct mg_connection *sc = mg_http_connect(&mgr, target_url.c_str(), slave_client_handler, state);
+            
+            if (!sc) {
+                send_final_response(state, "{\"error\": \"Failed to reach Slaves\"}\n");
+                delete state;
+            }
+        }
+    }
+}
+
+// ==========================================
+// Event Handler های Mongoose (HTTP) و MQTT
+// ==========================================
+
+// دریافت درخواست از طریق MQTT
+void mqtt_on_message(struct mosquitto *mosq, void *userdata, const struct mosquitto_message *msg) {
+    if (msg->payload == nullptr) return;
+    string sensor_id((char*)msg->payload, msg->payloadlen);
+    
+    // پاکسازی فاصله‌های اضافی احتمالی در آیدی سنسور
+    sensor_id.erase(sensor_id.find_last_not_of(" \n\r\t")+1);
+    
+    cout << "\n[Master MQTT] New request received on topic 'sensor/request' for ID: " << sensor_id << endl;
+    
+    RequestState *state = new RequestState{nullptr, true, sensor_id, 1, std::chrono::high_resolution_clock::now()};
+    process_sensor_request(sensor_id, state);
+}
+
+// دریافت درخواست از طریق HTTP
+static void http_ev_handler(struct mg_connection *c, int ev, void *ev_data) {
     if (ev == MG_EV_HTTP_MSG) {
         struct mg_http_message *hm = (struct mg_http_message *) ev_data;
-        
         if (mg_match(hm->uri, mg_str("/api/sensor"), NULL)) {
             char id_var[32] = {0};
             mg_http_get_var(&hm->query, "id", id_var, sizeof(id_var));
             string sensor_id(id_var);
             
-            cout << "\n[Master] New request received for sensor ID: " << sensor_id << endl;
-
-            // ۱. شروع تایمر محاسبه سرعت
-            auto start_time = std::chrono::high_resolution_clock::now();
-            string cache_key = "sensor_" + sensor_id;
-
-            // ۲. بررسی لایه کش (Memcached) فقط برای داده‌های لوکال مستر
-            string cached_data = get_from_cache(cache_key);
-
-            if (!cached_data.empty()) {
-                // ---- [Cache Hit] ----
-                auto end_time = std::chrono::high_resolution_clock::now();
-                double time_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();
-                
-                cout << "[Master] Cache HIT! Data retrieved from Memcached in " << time_ms << " ms." << endl;
-                
-                string final_json = inject_time_into_json(cached_data, time_ms);
-                mg_http_reply(c, 200, "Content-Type: application/json\r\n", "%s", final_json.c_str());
-            } 
-            else {
-                // ---- [Cache Miss] ----
-                cout << "[Master] Cache MISS! Checking local SQLite database..." << endl;
-                string local_result = query_local_db(sensor_id);
-                
-                if (local_result.find("\"error\"") == string::npos) {
-                    // داده در دیتابیس لوکال یافت شد
-                    cout << "[Master] Data found locally. Storing in Cache..." << endl;
-                    
-                    // ذخیره در کش برای دفعات بعد (فقط برای داده‌های لوکال)
-                    set_to_cache(cache_key, local_result);
-                    
-                    auto end_time = std::chrono::high_resolution_clock::now();
-                    double time_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();
-                    
-                    string final_json = inject_time_into_json(local_result, time_ms);
-                    mg_http_reply(c, 200, "Content-Type: application/json\r\n", "%s", final_json.c_str());
-                } else {
-                    // داده محلی نبود، فوروارد به اسلیوها
-                    cout << "[Master] Data not local. Starting async routing to Slaves..." << endl;
-                    
-                    // پاس دادن زمان شروع به RequestState برای محاسبه‌ی نهایی در صورت یافتن در اسلیو
-                    RequestState *state = new RequestState{c, sensor_id, 1, start_time};
-                    string target_url = config["SLAVE1_URL"] + "/api/sensor?id=" + sensor_id;
-                    
-                    struct mg_connection *sc = mg_http_connect(c->mgr, target_url.c_str(), slave_client_handler, state);
-                    if (!sc) {
-                        cout << "[Master] Failed to initiate connection to Slave 1." << endl;
-                        mg_http_reply(c, 500, "Content-Type: application/json\r\n", "{\"error\": \"Failed to reach Slaves\"}\n");
-                        delete state;
-                    }
-                }
-            }
+            cout << "\n[Master HTTP] New request received for ID: " << sensor_id << endl;
+            RequestState *state = new RequestState{c, false, sensor_id, 1, std::chrono::high_resolution_clock::now()};
+            process_sensor_request(sensor_id, state);
         } else {
             mg_http_reply(c, 404, "", "Not Found\n");
         }
@@ -259,41 +262,45 @@ static void ev_handler(struct mg_connection *c, int ev, void *ev_data) {
 int main(int argc, char *argv[]) {
     if (argc < 2) {
         cerr << "Usage: " << argv[0] << " <CONFIG_FILE_PATH>" << endl;
-        cerr << "Example: " << argv[0] << " config.txt" << endl;
         return 1;
     }
-
     load_config(argv[1]);
 
-    // اتصال به ممکشد
+    // اتصال به Memcached
     memc = memcached_create(NULL);
-    memcached_server_st *servers = NULL;
-    memcached_return rc;
+    memcached_server_st *servers = memcached_server_list_append(NULL, "127.0.0.1", 11211, NULL);
+    if (memcached_server_push(memc, servers) == MEMCACHED_SUCCESS) {
+        cout << "[Master] Connected to Memcached." << endl;
+    }
+
+    // مقداردهی و اتصال به MQTT Broker (Mosquitto)
+    mosquitto_lib_init();
+    mosq = mosquitto_new("MasterGateway", true, NULL);
+    mosquitto_message_callback_set(mosq, mqtt_on_message);
     
-    servers = memcached_server_list_append(servers, "127.0.0.1", 11211, &rc);
-    rc = memcached_server_push(memc, servers);
-    
-    if (rc == MEMCACHED_SUCCESS) {
-        cout << "[Master] Connected to Memcached Cache successfully." << endl;
+    if (mosquitto_connect(mosq, "localhost", 1883, 60) == MOSQ_ERR_SUCCESS) {
+        // عضویت در تاپیک درخواست با QoS 1
+        mosquitto_subscribe(mosq, NULL, "sensor/request", 1);
+        cout << "[Master] Connected to MQTT Broker. Subscribed to 'sensor/request'" << endl;
     } else {
-        cerr << "[Master] Warning: Failed to connect to Memcached." << endl;
+        cerr << "[Master] Error connecting to MQTT Broker!" << endl;
     }
 
-    struct mg_mgr mgr;
     mg_mgr_init(&mgr);
-    
     string url_str = "http://" + config["MASTER_IP"] + ":" + config["MASTER_PORT"];
-    
-    cout << "[Master] Starting API Gateway on " << url_str << endl;
-    mg_http_listen(&mgr, url_str.c_str(), ev_handler, NULL);
+    mg_http_listen(&mgr, url_str.c_str(), http_ev_handler, NULL);
+    cout << "[Master] HTTP Gateway listening on " << url_str << endl;
 
+    // حلقه‌ی اصلی سیستم (مدیریت همزمان HTTP و MQTT)
     while (true) {
-        mg_mgr_poll(&mgr, 1000);
+        mg_mgr_poll(&mgr, 100); 
+        mosquitto_loop(mosq, 0, 1); // بررسی غیرمسدودکننده پیام‌های MQTT
     }
 
+    // پاکسازی
     mg_mgr_free(&mgr);
-    if (memc) {
-        memcached_free(memc);
-    }
+    mosquitto_destroy(mosq);
+    mosquitto_lib_cleanup();
+    if (memc) memcached_free(memc);
     return 0;
 }

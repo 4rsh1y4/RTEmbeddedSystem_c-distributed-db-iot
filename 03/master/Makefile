@@ -3,7 +3,7 @@ CXX = g++
 CXXFLAGS = -std=c++11 -Wall -O2
 
 # کتابخانه‌هایی که باید لینک شوند
-LIBS = -lsqlite3 -lmemcached
+LIBS = -lsqlite3 -lmemcached -lmosquitto
 
 # هدف نهایی
 all: master_node
