@@ -127,6 +127,7 @@ SELECT COUNT(*) AS sensors_count FROM sensors;
 SELECT COUNT(*) AS readings_count FROM sensor_readings;
 EOF
 
+
 echo
 echo "Sample latest readings:"
 sqlite3 "$DB_FILE" <<EOF

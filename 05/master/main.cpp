@@ -2,7 +2,7 @@
  * Author: Arshia Noroozi
  * Student ID: 402170562
  * File: master/main.cpp
- * Description: API Gateway (Master) node with MQTT & HTTP integration, Memcached and Async Routing
+ * Description: API Gateway (Master) node with MQTT & HTTP integration, Memcached, Async Routing and Logs API
  */
 
 #include "mongoose.h"
@@ -21,6 +21,7 @@ map<string, string> config;
 memcached_st *memc = nullptr; 
 struct mosquitto *mosq = nullptr; // متغیر سراسری کلاینت MQTT
 struct mg_mgr mgr;                // متغیر سراسری Mongoose Manager (جدید)
+
 // ==========================================
 // توابع کمکی برای Memcached و زمان
 // ==========================================
@@ -245,6 +246,8 @@ void mqtt_on_message(struct mosquitto *mosq, void *userdata, const struct mosqui
 static void http_ev_handler(struct mg_connection *c, int ev, void *ev_data) {
     if (ev == MG_EV_HTTP_MSG) {
         struct mg_http_message *hm = (struct mg_http_message *) ev_data;
+        
+        // ================= API قدیمی: خواندن آخرین وضعیت =================
         if (mg_match(hm->uri, mg_str("/api/sensor"), NULL)) {
             char id_var[32] = {0};
             mg_http_get_var(&hm->query, "id", id_var, sizeof(id_var));
@@ -253,7 +256,78 @@ static void http_ev_handler(struct mg_connection *c, int ev, void *ev_data) {
             cout << "\n[Master HTTP] New request received for ID: " << sensor_id << endl;
             RequestState *state = new RequestState{c, false, sensor_id, 1, std::chrono::high_resolution_clock::now()};
             process_sensor_request(sensor_id, state);
-        } else {
+        } 
+        
+        // ================= API جدید: خواندن تاریخچه (بخش 5) =================
+        else if (mg_match(hm->uri, mg_str("/api/logs"), NULL)) {
+            char s_name[100] = "", s_id[50] = "", s_date[50] = "";
+            
+            mg_http_get_var(&hm->query, "sensor_name", s_name, sizeof(s_name));
+            mg_http_get_var(&hm->query, "sensor_id", s_id, sizeof(s_id));
+            mg_http_get_var(&hm->query, "date", s_date, sizeof(s_date));
+
+            if (s_name[0] == '\0' || s_id[0] == '\0' || s_date[0] == '\0') {
+                mg_http_reply(c, 400, "Content-Type: application/json\r\n", "{\"error\": \"Missing parameters. Required: sensor_name, sensor_id, date\"}\n");
+                return;
+            }
+
+            sqlite3 *db;
+            string db_path = config["MASTER_DB"];
+            if (sqlite3_open(db_path.c_str(), &db) != SQLITE_OK) {
+                mg_http_reply(c, 500, "Content-Type: application/json\r\n", "{\"error\": \"Failed to open Master DB\"}\n");
+                return;
+            }
+
+            // حذف بررسی نام سنسور برای جلوگیری از تداخل با دیتای CSV
+            string query = "SELECT strftime('%H:%M:%S', recorded_at) as time, value "
+                           "FROM sensor_readings "
+                           "WHERE sensor_id = '" + string(s_id) + "' "
+                           "AND date(recorded_at) = '" + string(s_date) + "' "
+                           "ORDER BY recorded_at ASC;";
+
+            sqlite3_stmt *stmt;
+            int rc = sqlite3_prepare_v2(db, query.c_str(), -1, &stmt, NULL);
+            
+            string json_response = "{\n";
+            json_response += "  \"sensor_name\": \"" + string(s_name) + "\",\n";
+            json_response += "  \"sensor_id\": \"" + string(s_id) + "\",\n";
+            json_response += "  \"date\": \"" + string(s_date) + "\",\n";
+            json_response += "  \"values\": [\n";
+
+            bool first = true;
+            bool has_data = false;
+
+            if (rc == SQLITE_OK) {
+                while (sqlite3_step(stmt) == SQLITE_ROW) {
+                    has_data = true;
+                    if (!first) json_response += ",\n";
+                    
+                    const unsigned char *time_val = sqlite3_column_text(stmt, 0);
+                    const unsigned char *val_str = sqlite3_column_text(stmt, 1);
+                    
+                    json_response += "    {\n";
+                    json_response += "      \"time\": \"" + string((const char*)time_val) + "\",\n";
+                    json_response += "      \"value\": \"" + string((const char*)val_str) + "\"\n";
+                    json_response += "    }";
+                    
+                    first = false;
+                }
+                sqlite3_finalize(stmt);
+            }
+            sqlite3_close(db);
+
+            json_response += "\n  ]\n}";
+
+            if (!has_data) {
+                // اضافه شدن نکست‌لاین برای خروجی تمیز
+                mg_http_reply(c, 404, "Content-Type: application/json\r\n", "{\"message\": \"No logs found for this sensor on the specified date.\"}\n");
+            } else {
+                // اضافه شدن نکست‌لاین برای خروجی تمیز
+                mg_http_reply(c, 200, "Content-Type: application/json\r\n", "%s\n", json_response.c_str());
+            }
+        } 
+        // ================= مسیرهای نامعتبر =================
+        else {
             mg_http_reply(c, 404, "", "Not Found\n");
         }
     }
@@ -297,7 +371,6 @@ int main(int argc, char *argv[]) {
         mosquitto_loop(mosq, 0, 1); // بررسی غیرمسدودکننده پیام‌های MQTT
     }
 
-    // پاکسازی
     mg_mgr_free(&mgr);
     mosquitto_destroy(mosq);
     mosquitto_lib_cleanup();

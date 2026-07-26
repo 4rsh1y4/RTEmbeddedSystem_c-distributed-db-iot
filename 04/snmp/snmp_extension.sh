@@ -1,23 +1,13 @@
 #!/bin/bash
 # Script: snmp_extension.sh
-# Description: Pure Bash SNMP pass script for Distributed IoT Gateway (Dynamic IP)
 
 MODE=$1
 REQ_OID=$2
 BASE_OID=".1.3.6.1.4.1.402170562"
 
-# --- بخش جدید: خواندن داینامیک IP از فایل config.txt ---
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_FILE="$(cd "$SCRIPT_DIR/../master" && pwd)/config.txt"
+# این مقدار توسط اسکریپت راه‌انداز با آی‌پی واقعی سیستم جایگزین خواهد شد
+MASTER_IP="REPLACE_ME_IP"
 
-if [ -f "$CONFIG_FILE" ]; then
-    MASTER_IP=$(grep -E "^MASTER_IP=" "$CONFIG_FILE" | cut -d'=' -f2 | tr -d '\r' | tr -d ' ')
-else
-    MASTER_IP="127.0.0.1" # مقدار پیش‌فرض در صورت پیدا نشدن فایل
-fi
-# --------------------------------------------------------
-
-# لیست از پیش‌مرتب‌شده‌ی تمام OIDهای معتبر در شبکه
 VALID_OIDS=(
     "$BASE_OID.101.1" "$BASE_OID.101.2" "$BASE_OID.101.3"
     "$BASE_OID.102.1" "$BASE_OID.102.2" "$BASE_OID.102.3"
@@ -29,7 +19,6 @@ VALID_OIDS=(
 
 TARGET_OID=""
 
-# پردازش درخواست GET (خواندن یک OID خاص)
 if [ "$MODE" == "-g" ]; then
     for oid in "${VALID_OIDS[@]}"; do
         if [ "$oid" == "$REQ_OID" ]; then
@@ -37,8 +26,6 @@ if [ "$MODE" == "-g" ]; then
             break
         fi
     done
-
-# پردازش درخواست GETNEXT (پیمایش درخت برای snmpwalk)
 elif [ "$MODE" == "-n" ]; then
     TARGET_OID=$( (echo "$REQ_OID"; printf "%s\n" "${VALID_OIDS[@]}") | sort -V | awk -v req="$REQ_OID" '
         $0 == req { found=1; next }
@@ -61,23 +48,19 @@ if [ -z "$TARGET_OID" ]; then
     exit 0
 fi
 
-# استخراج آیدی سنسور و شناسه ویژگی از انتهای OID
 SENSOR_ID=$(echo "$TARGET_OID" | awk -F'.' '{print $(NF-1)}')
 ATTR_ID=$(echo "$TARGET_OID" | awk -F'.' '{print $NF}')
 
-# ارسال درخواست به API نود Master با استفاده از IP داینامیک
 JSON_RES=$(curl -s --max-time 2 "http://${MASTER_IP}:8080/api/sensor?id=$SENSOR_ID")
 
 if [ -z "$JSON_RES" ] || echo "$JSON_RES" | grep -q '"error"'; then
     exit 0
 fi
 
-# پارس کردن JSON
 NAME=$(echo "$JSON_RES" | grep -o '"sensor_name": *"[^"]*"' | cut -d'"' -f4)
 UNIT=$(echo "$JSON_RES" | grep -o '"unit": *"[^"]*"' | cut -d'"' -f4)
 VALUE=$(echo "$JSON_RES" | grep -o '"value": *[-0-9.]*' | cut -d':' -f2 | tr -d ' ')
 
-# چاپ خروجی با استاندارد دیمن snmpd
 echo "$TARGET_OID"
 echo "string"
 

@@ -126,6 +126,18 @@ SELECT node_name, node_role FROM node_info;
 SELECT COUNT(*) AS sensors_count FROM sensors;
 SELECT COUNT(*) AS readings_count FROM sensor_readings;
 EOF
+sqlite3 "$DB_FILE" <<EOF
+-- اطمینان از وجود سنسور 101 با نام temperature
+INSERT OR IGNORE INTO sensors (sensor_id, sensor_type, sensor_name, location, unit, node_name) 
+VALUES ('101', 'Environment', 'temperature', 'Test Room', 'C', '$NODE_NAME');
+
+-- اضافه کردن لاگ‌های تاریخ 2026-06-01 برای تست API
+INSERT INTO sensor_readings (sensor_id, value, recorded_at) 
+VALUES ('101', '24.8', '2026-06-01 10:15:00');
+
+INSERT INTO sensor_readings (sensor_id, value, recorded_at) 
+VALUES ('101', '25.1', '2026-06-01 10:30:00');
+EOF
 
 echo
 echo "Sample latest readings:"
