@@ -2,14 +2,14 @@
 
 # Script: build_and_run.sh
 # Author: Arshia Noroozi (402170562)
-# Description: Auto-detects node identity, initializes DB, Memcached, MQTT config, compiles & launches.
+# Description: Auto-detects node identity, initializes DB, Memcached, MQTT/SNMP config, compiles & launches.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BASE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 CONFIG_FILE="$BASE_DIR/master/config.txt"
 
 echo "=========================================="
-echo "    Distributed IoT System Bootstrapper (MQTT-Layer) "
+echo "    Distributed IoT System Bootstrapper   "
 echo "=========================================="
 
 if [ ! -f "$CONFIG_FILE" ]; then
@@ -45,7 +45,7 @@ echo " Identified Node   : [ ${NODE_ROLE:-UNKNOWN} ]"
 echo "=========================================="
 
 case "$NODE_ROLE" in
-"master")
+    "master")
         echo -e "\n[1/6] Initializing Master Database..."
         chmod +x "$SCRIPT_DIR/master_init_db.sh"
         "$SCRIPT_DIR/master_init_db.sh"
@@ -55,12 +55,15 @@ case "$NODE_ROLE" in
         "$SCRIPT_DIR/memcached_init.sh"
 
         echo -e "\n[3/6] Applying MQTT (Mosquitto) Configuration..."
+        # این خط اضافه شد تا پکیج‌های جاافتاده MQTT نصب شوند
+        sudo apt update > /dev/null 2>&1
+        sudo apt install -y mosquitto mosquitto-clients libmosquitto-dev > /dev/null 2>&1
+        
         if [ -f "$BASE_DIR/mosquitto.conf" ]; then
             sudo cp "$BASE_DIR/mosquitto.conf" /etc/mosquitto/conf.d/iot_project.conf
             sudo systemctl restart mosquitto
         fi
 
-        # ----------------- بخش جدید SNMP -----------------
         echo -e "\n[4/6] Configuring and Restarting SNMP Daemon (snmpd)..."
         sudo apt install -y snmpd snmp > /dev/null 2>&1
         
@@ -73,7 +76,6 @@ pass .1.3.6.1.4.1.402170562 /bin/bash $BASH_SCRIPT_PATH
 EOL
         sudo systemctl restart snmpd
         echo "SNMP Service configured with Enterprise OID successfully."
-        # -------------------------------------------------
 
         echo -e "\n[5/6] Compiling Master executable via Makefile..."
         cd "$BASE_DIR/master" || exit 1
