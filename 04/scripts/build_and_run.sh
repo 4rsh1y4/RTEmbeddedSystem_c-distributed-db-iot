@@ -64,15 +64,20 @@ case "$NODE_ROLE" in
             sudo systemctl restart mosquitto
         fi
 
-        echo -e "\n[4/6] Configuring and Restarting SNMP Daemon (snmpd)..."
+echo -e "\n[4/6] Configuring and Restarting SNMP Daemon (snmpd)..."
         sudo apt install -y snmpd snmp > /dev/null 2>&1
         
-        # پیدا کردن مسیر دقیق اسکریپت برای قابلیت pass
-        BASH_SCRIPT_PATH="$(cd "$BASE_DIR/snmp" && pwd)/snmp_extension.sh"
+        sudo mkdir -p /opt/iot_project
+        sudo cp "$BASE_DIR/snmp/snmp_extension.sh" /opt/iot_project/snmp_extension.sh
+        
+        # تزریق داینامیک آی‌پی مستر به فایل با استفاده از sed
+        sudo sed -i "s/REPLACE_ME_IP/$MASTER_IP_CFG/g" /opt/iot_project/snmp_extension.sh
+        
+        sudo chmod +x /opt/iot_project/snmp_extension.sh
         
         sudo bash -c "cat > /etc/snmp/snmpd.conf" << EOL
 rocommunity public
-pass .1.3.6.1.4.1.402170562 /bin/bash $BASH_SCRIPT_PATH
+pass .1.3.6.1.4.1.402170562 /bin/bash /opt/iot_project/snmp_extension.sh
 EOL
         sudo systemctl restart snmpd
         echo "SNMP Service configured with Enterprise OID successfully."
