@@ -93,6 +93,7 @@ cd ~/IoT_Distributed_Project
 این اسکریپت حالت‌های خواندن داده از Master، Slave 1، Slave 2، ورودی نامعتبر، سنسور ناموجود و جلوگیری از دسترسی مستقیم به Slave را بررسی می‌کند.
 
 **خلاصه نتیجه تست:**
+<div dir="ltr" align="left">
 
 | تست | HTTP مورد انتظار | HTTP واقعی | نتیجه |
 |---|---:|---:|---|
@@ -103,6 +104,7 @@ cd ~/IoT_Distributed_Project
 | سنسور ناموجود | `404` | 404 | "error": "Sensor type and ID not found in the network" |
 | نبود پارامتر `type` | `400` | 400 | "error": "Both query parameters 'type' and 'id' are required" |
 | دسترسی مستقیم به Slave | `403` | 403 | "error": "Forbidden: requests must come through Master" |
+</div>
 
 <div dir="ltr" align="middle">
 
@@ -183,21 +185,22 @@ curl -s   "http://192.168.54.136:8001/api/sensor?type=co2&id=204"
 
 ### 4.3 تست fault tolerance
 
-ابتدا Slave 1 به صورت عمدی خاموش گردید و درخواست سنسور `304` ارسال شد. لاگ‌ها نشان می‌دهد Master با خطای `socket error` مواجه شده، اما به دلیل مکانیزم **Fallback**، سیستم مستقیماً درخواست را به Slave 2 ارسال کرده است.
+ابتدا Slave 1 به صورت عمدی خاموش گردید و درخواست سنسور  304 را که در نود دوم بود با دستور زیر، به مستر ارسال میکنیم:
 
-سپس روی ماشین Master دستور زیر اجرا می‌شود:
+<div dir="ltr" align="left">
 
 ```bash
 curl -s "http://192.168.54.134:8080/api/sensor?type=smoke&id=304"
 ```
-
-این سنسور در Slave 2 قرار دارد.
+</div>
 
 **نتیجه اجرا:**
 
 | خروجی Clientو Master | وضعیت Slaveها |
 | :---: | :---: |
 | ![Client](images/ft_304_master&client.png) | ![Slaves](images/ft_304_slaves.png) |
+
+لاگ‌ها نشان می‌دهد Master با خطای `socket error` مواجه شده، اما به دلیل مکانیزم **Fallback**، سیستم مستقیماً درخواست را به Slave 2 ارسال کرده است.
 
 ---
 
