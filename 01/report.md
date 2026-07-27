@@ -17,10 +17,10 @@
 <div dir="ltr" align="left">
 
 ```sql
-SELECT s.sensor_name, r.value, s.unit, r.recorded_at 
+SELECT s.sensor_type, s.sensor_id, s.sensor_name, r.value, s.unit, r.recorded_at
 FROM sensors s 
 JOIN sensor_readings r ON s.sensor_id = r.sensor_id 
-WHERE s.sensor_id = ? 
+WHERE s.sensor_type = ? AND s.sensor_id = ?
 ORDER BY r.recorded_at DESC LIMIT 1;
 ```
 </div>
@@ -106,11 +106,13 @@ cd ~/IoT_Distributed_Project
 | دسترسی مستقیم به Slave | `403` | 403 | "error": "Forbidden: requests must come through Master" |
 </div>
 
-<div dir="ltr" align="middle">
+<div dir="ltr" align="center">
 
 | خروجی اسکریپت تست خودکار |
 | :---: |
-| <img src="images/part01_test_requests.png" alt="خروجی اسکریپت تست" width="500"> |---
+| <img src="images/part01_test_requests.png" alt="خروجی اسکریپت تست" width="500"> |
+
+---
 </div>
 
 ---

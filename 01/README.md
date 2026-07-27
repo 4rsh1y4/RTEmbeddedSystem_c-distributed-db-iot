@@ -68,11 +68,7 @@ MASTER_SLAVE_TOKEN=<LONG_RANDOM_SECRET>
 ./scripts/build_and_run.sh
 ```
 
-اسکریپت به‌طور پیش‌فرض نقش نود را با IP محلی تشخیص می‌دهد. برای اجرای آزمایشی چند نود روی یک ماشین یا زمانی که تشخیص IP مناسب نیست، نقش را می‌توان بدون تغییر کد مشخص کرد:
-```bash
-NODE_ROLE_OVERRIDE=slave1 ./scripts/build_and_run.sh
-```
-همچنین می‌توان فایل پیکربندی دیگری را انتخاب کرد:
+می‌توان فایل پیکربندی دیگری بجای فایل دیفالت انتخاب کرد:
 ```bash
 CONFIG_FILE=/path/to/config.txt NODE_ROLE_OVERRIDE=master ./scripts/build_and_run.sh
 ```
