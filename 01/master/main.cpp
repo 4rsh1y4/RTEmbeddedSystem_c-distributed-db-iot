@@ -49,6 +49,7 @@ string query_local_db(const string& sensor_id) {
                  "JOIN sensor_readings r ON s.sensor_id = r.sensor_id "
                  "WHERE s.sensor_id = ? "
                  "ORDER BY r.recorded_at DESC LIMIT 1";
+                 
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
         sqlite3_bind_text(stmt, 1, sensor_id.c_str(), -1, SQLITE_STATIC);
         if (sqlite3_step(stmt) == SQLITE_ROW) {
