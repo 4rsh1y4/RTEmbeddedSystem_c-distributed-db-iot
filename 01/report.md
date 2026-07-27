@@ -97,9 +97,9 @@ cd ~/IoT_Distributed_Project
 
 | تست | HTTP مورد انتظار | HTTP واقعی | نتیجه |
 |---|---:|---:|---|
-| داده موجود در Master | `200` | 200 | '"sensor_type": "temperature", "sensor_id": "101", "sensor_name": "Floor1_Room101_Temp", "value": 24.8, "unit": "C", "recorded_at": "2026-06-01 10:15:00"' |
-| داده موجود در Slave 1 | `200` | 200 | "sensor_type": "co2", "sensor_id": "204", "sensor_name": "Floor2_Meeting_CO2", "value": 735, "unit": "ppm", "recorded_at": "2026-06-01 10:20:00" |
-| داده موجود در Slave 2 | `200` | 200 | "sensor_type": "smoke", "sensor_id": "304", "sensor_name": "Floor3_Storage_Smoke", "value": 0, "unit": "bool", "recorded_at": "2026-06-01 10:20:00" |
+| داده موجود در Master | `200` | 200 | "sensor_type": "temperature", "sensor_id": "101", "sensor_name": "Floor1_Room101_Temp", "value": 24.8, "unit": "C", "recorded_at": "2026-06-01 10:15:00" |
+| داده موجود در Slave 1 | `200` | 200 | "sensor_type": "temperature", "sensor_id": "201", "sensor_name": "Floor2_Room201_Temp", "value": 25.3, "unit": "C", "recorded_at": "2026-06-01 10:15:00" |
+| داده موجود در Slave 2 | `200` | 200 | "sensor_type": "temperature", "sensor_id": "301", "sensor_name": "Floor3_Room301_Temp", "value": 23.1, "unit": "C", "recorded_at": "2026-06-01 10:15:00"|
 | نوع اشتباه برای شناسه معتبر | `404` | 404 | "error": "Sensor type and ID not found in the network" |
 | سنسور ناموجود | `404` | 404 | "error": "Sensor type and ID not found in the network" |
 | نبود پارامتر `type` | `400` | 400 | "error": "Both query parameters 'type' and 'id' are required" |
