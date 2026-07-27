@@ -14,6 +14,8 @@
 *   **جدول `sensor_readings`:** حاوی مقادیر خوانده‌شده و زمان ثبت آن‌ها.
 
 برای جلوگیری از ارسال درخواست‌های متعدد به دیتابیس، از کوئری ترکیبی `JOIN` استفاده شده است. این کوئری آخرین دیتای ثبت‌شده را بر اساس زمان `recorded_at` استخراج کرده و اطلاعات هویتی سنسور را با مقدار فعلی آن ادغام می‌کند:
+<div dir="ltr" align="left">
+
 ```sql
 SELECT s.sensor_name, r.value, s.unit, r.recorded_at 
 FROM sensors s 
@@ -21,6 +23,8 @@ JOIN sensor_readings r ON s.sensor_id = r.sensor_id
 WHERE s.sensor_id = ? 
 ORDER BY r.recorded_at DESC LIMIT 1;
 ```
+</div>
+
 ## 1.1 قرارداد درخواست و اعتبارسنجی ورودی
 ورودی درخواست از دو جزء مستقل تشکیل شده است: `sensor_type` و `sensor_id`. Master فقط زمانی جستجو را آغاز می‌کند که هر دو پارامتر `type` و `id` موجود و دارای قالب معتبر باشند. هر نود در کوئری SQLite هر دو ستون `sensor_type` و `sensor_id` را بررسی می‌کند؛ بنابراین ارسال شناسه صحیح همراه با نوع اشتباه منجر به بازگرداندن داده نخواهد شد. درخواست ناقص یا دارای نویسه‌های نامعتبر با وضعیت `400 Bad Request` رد می‌شود.
 
@@ -32,25 +36,25 @@ ORDER BY r.recorded_at DESC LIMIT 1;
 
 ```mermaid
 graph TD
-    O[Operator / Client] -->|1. HTTP GET /api/sensor?id=X| M[Master Node :8080]
-    
+    O[Operator / Client] -->|GET /api/sensor?type=T&id=X| M[Master<br/>192.168.54.134:8080]
+
     subgraph Master_Server
-        M -->|2. Local Query| MDB[(master.db)]
+        M -->|Local SQLite Query| MDB[(master.db)]
     end
 
     subgraph Slave_1_Server
-        M -->|3. Route if not local :8001| S1[Slave 1 Node]
+        M -->|HTTP + X-Master-Token| S1[Slave 1<br/>192.168.54.136:8001]
         S1 --> S1DB[(slave1.db)]
     end
 
     subgraph Slave_2_Server
-        M -->|4. Fallback / Route :8002| S2[Slave 2 Node]
+        M -->|Fallback HTTP + X-Master-Token| S2[Slave 2<br/>192.168.54.133:8002]
         S2 --> S2DB[(slave2.db)]
     end
 
-    S1 -.->|5. Return Data / Error| M
-    S2 -.->|5. Return Data / Error| M
-    M -->|6. JSON Response| O
+    S1 -.->|JSON Response or 404| M
+    S2 -.->|JSON Response or 404| M
+    M -->|Final JSON Response| O
 ```
 
 
@@ -73,36 +77,141 @@ graph TD
 ---
 
 ## 4. سناریوهای ارزیابی و تست شبکه
-برای اطمینان از عملکرد صحیح سیستم، 4 سناریوی تست حیاتی روی شبکه اجرا شد:
-### تست اول: Local Read (سنسور ۱۰۱)
-در این تست، سنسور `101` درخواست شد. داده مستقیماً در دیتابیس Master قرار داشت و بدون درگیری اسلیوها پاسخ داده شد.
 
-| خروجی Client | لاگ‌های Master | وضعیت Slaveها |
-| :---: | :---: | :---: |
-| ![Client](images/101_client.png) | ![Master](images/101_master.png) | ![Slaves](images/101_slaves.png) |
+### 4.1 اجرای اسکریپت تست خودکار
 
-### تست دوم: Async Routing
-سنسور `304` (موجود در Slave 2) درخواست شد. Master پس از عدم یافتن دیتا در خود، درخواست را به Slave 1 فرستاد. پس از دریافت پاسخ منفی، بدون توقف درخواست به Slave 2 ارسال و داده‌ها با موفقیت Forward گردید.
+پس از اجرای هر سه نود، اسکریپت تست روی ماشین Master اجرا شد:
+<div dir="ltr" align="left">
 
-| خروجی Client | لاگ‌های Master | وضعیت Slaveها |
-| :---: | :---: | :---: |
-| ![Client](images/304_client.png) | ![Master](images/304_master.png) | ![Slaves](images/304_slaves.png) |
-
-### تست سوم: 404 Not Found
-سنسور `999` که در هیچ‌یک از گره‌ها وجود ندارد درخواست شد. سیستم پس از پیمایش کامل گره‌ها، به جای Crash، خطای استاندارد `404 Not Found` را بازگرداند.
-
-| خروجی Client | لاگ‌های Master | وضعیت Slaveها |
-| :---: | :---: | :---: |
-| ![Client](images/999_client.png) | ![Master](images/999_master.png) | ![Slaves](images/999_slaves.png) |
+```bash
+cd ~/IoT_Distributed_Project
+./01/scripts/test_requests.sh
+```
+</div>
 
 
-### تست چهارم: Fault Tolerance
+این اسکریپت حالت‌های خواندن داده از Master، Slave 1، Slave 2، ورودی نامعتبر، سنسور ناموجود و جلوگیری از دسترسی مستقیم به Slave را بررسی می‌کند.
+
+**خلاصه نتیجه تست:**
+
+| تست | HTTP مورد انتظار | HTTP واقعی | نتیجه |
+|---|---:|---:|---|
+| داده موجود در Master | `200` | 200 | '"sensor_type": "temperature", "sensor_id": "101", "sensor_name": "Floor1_Room101_Temp", "value": 24.8, "unit": "C", "recorded_at": "2026-06-01 10:15:00"' |
+| داده موجود در Slave 1 | `200` | 200 | "sensor_type": "co2", "sensor_id": "204", "sensor_name": "Floor2_Meeting_CO2", "value": 735, "unit": "ppm", "recorded_at": "2026-06-01 10:20:00" |
+| داده موجود در Slave 2 | `200` | 200 | "sensor_type": "smoke", "sensor_id": "304", "sensor_name": "Floor3_Storage_Smoke", "value": 0, "unit": "bool", "recorded_at": "2026-06-01 10:20:00" |
+| نوع اشتباه برای شناسه معتبر | `404` | 404 | "error": "Sensor type and ID not found in the network" |
+| سنسور ناموجود | `404` | 404 | "error": "Sensor type and ID not found in the network" |
+| نبود پارامتر `type` | `400` | 400 | "error": "Both query parameters 'type' and 'id' are required" |
+| دسترسی مستقیم به Slave | `403` | 403 | "error": "Forbidden: requests must come through Master" |
+
+<div dir="ltr" align="middle">
+
+| خروجی اسکریپت تست خودکار |
+| :---: |
+| <img src="images/part01_test_requests.png" alt="خروجی اسکریپت تست" width="500"> |---
+</div>
+
+---
+
+### 4.2 تست خواندن دستی داده:
+
+با درخواست های دستی زیر داده های زیر را از مستر یا اسلیو خواستیم تا نتایج را ببینیم:
+
+1. سنسور موحجود در مستر:
+
+<div dir="ltr" align="left">
+
+```bash
+curl -s "http://192.168.54.134:8080/api/sensor?type=temperature&id=101"
+```
+</div>
+
+2. سنسور موحجود در اسلیو 1:
+<div dir="ltr" align="left">
+
+```bash
+curl -s "http://192.168.54.134:8080/api/sensor?type=co2&id=204"
+```
+</div>
+
+3. سنسور موحجود در اسلیو 2:
+<div dir="ltr" align="left">
+
+```bash
+curl -s   "http://192.168.54.134:8080/api/sensor?type=smoke&id=304"
+```
+</div>
+
+4. سنسور با تایپ اشتباه در سیستم:
+<div dir="ltr" align="left">
+
+```bash
+curl -s   "http://192.168.54.134:8080/api/sensor?type=humidity&id=101"
+```
+</div>
+
+5. سنسور ناموجود در سیستم:
+<div dir="ltr" align="left">
+
+```bash
+curl -s   "http://192.168.54.134:8080/api/sensor?type=temperature&id=999"
+```
+</div>
+
+6. سنسور بدون مشخص کردن تایپ:
+<div dir="ltr" align="left">
+
+```bash
+curl -s   "http://192.168.54.134:8080/api/sensor?id=101"
+```
+</div>
+
+7. درخواست سنسور از نود غیر مستر:
+<div dir="ltr" align="left">
+
+```bash
+curl -s   "http://192.168.54.136:8001/api/sensor?type=co2&id=204"
+```
+</div>
+
+**نتیجه اجرا:**
+
+| پاسخ‌های Client و لاگ Master | لاگ Slaveها |
+| :---: | :---: |
+| ![پاسخ‌های Client و لاگ Master](images/multiple_master&client.png) | ![لاگ Slaveها](images/multiple_slaves.png) |
+---
+
+### 4.3 تست fault tolerance
+
 ابتدا Slave 1 به صورت عمدی خاموش گردید و درخواست سنسور `304` ارسال شد. لاگ‌ها نشان می‌دهد Master با خطای `socket error` مواجه شده، اما به دلیل مکانیزم **Fallback**، سیستم مستقیماً درخواست را به Slave 2 ارسال کرده است.
 
-| خروجی Client | لاگ‌های Master | وضعیت Slaveها |
-| :---: | :---: | :---: |
-| ![Client](images/ft_304_client.png) | ![Master](images/ft_304_master.png) | ![Slaves](images/ft_304_slaves.png) |
+سپس روی ماشین Master دستور زیر اجرا می‌شود:
 
+```bash
+curl -s "http://192.168.54.134:8080/api/sensor?type=smoke&id=304"
+```
+
+این سنسور در Slave 2 قرار دارد.
+
+**نتیجه اجرا:**
+
+| خروجی Clientو Master | وضعیت Slaveها |
+| :---: | :---: |
+| ![Client](images/ft_304_master&client.png) | ![Slaves](images/ft_304_slaves.png) |
+
+---
+
+### 4.4 جمع‌بندی نتایج عملی
+
+پس از اجرای تست‌ها، موارد زیر بر اساس خروجی واقعی تکمیل می‌شوند:
+
+- خواندن محلی از Master: `موفق`
+- مسیریابی به Slave 1: `موفق`
+- مسیریابی به Slave 2: `موفق`
+- تشخیص ورودی ناقص: `موفق`
+- تشخیص سنسور ناموجود: `موفق`
+- جلوگیری از دسترسی مستقیم به Slave: `موفق`
+- ادامه عملکرد در صورت قطع Slave 1: `موفق`
 ---
 
 
