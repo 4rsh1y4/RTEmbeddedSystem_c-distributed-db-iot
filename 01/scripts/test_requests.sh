@@ -3,53 +3,96 @@
 # Script: test_requests.sh
 # Author: Arshia Noroozi (402170562)
 # Description: Automated test runner for IoT Distributed Database queries.
+#!/bin/bash
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BASE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# پیدا کردن فایل کانفیگ از روت پروژه یا از طریق متغیر محیطی
 CONFIG_FILE="${CONFIG_FILE:-$BASE_DIR/../config.txt}"
 
-if [ -f "$CONFIG_FILE" ]; then
-    MASTER_IP=$(grep -E "^MASTER_IP=" "$CONFIG_FILE" | cut -d'=' -f2 | tr -d '\r' | tr -d ' ')
-    MASTER_PORT=$(grep -E "^MASTER_PORT=" "$CONFIG_FILE" | cut -d'=' -f2 | tr -d '\r' | tr -d ' ')
-else
-    echo "[!] Warning: Configuration file not found at $CONFIG_FILE"
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "ERROR: Configuration file not found at $CONFIG_FILE"
+    exit 1
 fi
 
-MASTER_IP=${MASTER_IP:-"127.0.0.1"}
-MASTER_PORT=${MASTER_PORT:-"8080"}
-TARGET_URL="http://${MASTER_IP}:${MASTER_PORT}/api/sensor"
+MASTER_IP=$(grep "^MASTER_IP=" "$CONFIG_FILE" | cut -d '=' -f2)
+MASTER_PORT=$(grep "^MASTER_PORT=" "$CONFIG_FILE" | cut -d '=' -f2)
 
-echo "=========================================="
-echo " Running Automated Tests against Master   "
-echo " Target: $TARGET_URL                      "
-echo "=========================================="
+SLAVE1_IP=$(grep "^SLAVE1_IP=" "$CONFIG_FILE" | cut -d '=' -f2)
+SLAVE1_PORT=$(grep "^SLAVE1_PORT=" "$CONFIG_FILE" | cut -d '=' -f2)
+
+MASTER_URL="http://$MASTER_IP:$MASTER_PORT/api/sensor"
+SLAVE1_URL="http://$SLAVE1_IP:$SLAVE1_PORT/api/sensor"
 
 run_test() {
-    local title="$1"
-    local sensor_id="$2"
-    
-    echo -e "\n------------------------------------------"
-    echo "Test: $title"
-    echo "Command: curl -s \"${TARGET_URL}?id=${sensor_id}\""
-    echo "Response:"
-    
-    # گرفتن پاسخ و اطمینان از چاپ در یک خط جدید
-    RESPONSE=$(curl -s "${TARGET_URL}?id=${sensor_id}")
-    
-    if [ -z "$RESPONSE" ]; then
-        echo "[No response or empty body returned]"
-    else
-        echo "$RESPONSE"
-    fi
+    TEST_NAME="$1"
+    URL="$2"
+    EXPECTED_STATUS="$3"
+
+    RESPONSE_FILE=$(mktemp)
+
+    ACTUAL_STATUS=$(curl -s \
+        -o "$RESPONSE_FILE" \
+        -w "%{http_code}" \
+        "$URL")
+
     echo "------------------------------------------"
-    sleep 1
+    echo "Test: $TEST_NAME"
+    echo "Expected status: $EXPECTED_STATUS"
+    echo "Actual status:   $ACTUAL_STATUS"
+    echo "Response:"
+    cat "$RESPONSE_FILE"
+    echo
+
+    rm -f "$RESPONSE_FILE"
+
+    if [ "$ACTUAL_STATUS" = "$EXPECTED_STATUS" ]; then
+        echo "Result: PASS"
+    else
+        echo "Result: FAIL"
+        return 1
+    fi
 }
 
-run_test "1. Local Read (Master DB) - Sensor 101" "101"
-run_test "2. Async Network Route - Sensor 204" "204"
-run_test "3. Async Network Route - Sensor 304" "304"
-run_test "4. Not Found Test (404) - Sensor 999" "999"
+echo "=========================================="
+echo "         Part 01 API Tests"
+echo "=========================================="
 
-echo -e "\nAll tests completed!"
+run_test \
+    "Sensor stored in Master" \
+    "$MASTER_URL?type=temperature&id=101" \
+    "200"
+
+run_test \
+    "Sensor routed to Slave 1" \
+    "$MASTER_URL?type=co2&id=204" \
+    "200"
+
+run_test \
+    "Sensor routed to Slave 2" \
+    "$MASTER_URL?type=smoke&id=304" \
+    "200"
+
+run_test \
+    "Correct ID with wrong sensor type" \
+    "$MASTER_URL?type=humidity&id=101" \
+    "404"
+
+run_test \
+    "Unknown sensor" \
+    "$MASTER_URL?type=temperature&id=999" \
+    "404"
+
+run_test \
+    "Missing sensor type" \
+    "$MASTER_URL?id=101" \
+    "400"
+
+run_test \
+    "Direct operator request to Slave" \
+    "$SLAVE1_URL?type=co2&id=204" \
+    "403"
+
+echo "=========================================="
+echo "Tests completed."
+echo "=========================================="

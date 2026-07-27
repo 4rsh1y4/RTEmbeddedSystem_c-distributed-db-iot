@@ -7,7 +7,7 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BASE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# پیدا کردن فایل کانفیگ از روت پروژه یا از طریق متغیر محیطی (در صورت ست شدن)
+# پیدا کردن فایل کانفیگ از روت پروژه یا از طریق متغیر محیطی
 CONFIG_FILE="${CONFIG_FILE:-$BASE_DIR/../config.txt}"
 
 echo "=========================================="
@@ -19,31 +19,36 @@ if [ ! -f "$CONFIG_FILE" ]; then
     exit 1
 fi
 
-MASTER_IP_CFG=$(grep -E "^MASTER_IP=" "$CONFIG_FILE" | cut -d'=' -f2 | tr -d '\r' | tr -d ' ')
-SLAVE1_URL_CFG=$(grep -E "^SLAVE1_URL=" "$CONFIG_FILE" | cut -d'=' -f2 | tr -d '\r' | tr -d ' ')
-SLAVE2_URL_CFG=$(grep -E "^SLAVE2_URL=" "$CONFIG_FILE" | cut -d'=' -f2 | tr -d '\r' | tr -d ' ')
+MASTER_IP_CFG=$(grep "^MASTER_IP=" "$CONFIG_FILE" | cut -d '=' -f2)
 
-SLAVE1_IP_CFG=$(echo "$SLAVE1_URL_CFG" | sed -e 's/http:\/\///' -e 's/:.*//')
-SLAVE2_IP_CFG=$(echo "$SLAVE2_URL_CFG" | sed -e 's/http:\/\///' -e 's/:.*//')
+SLAVE1_IP_CFG=$(grep "^SLAVE1_IP=" "$CONFIG_FILE" | cut -d '=' -f2)
+SLAVE1_PORT=$(grep "^SLAVE1_PORT=" "$CONFIG_FILE" | cut -d '=' -f2)
+SLAVE1_DB=$(grep "^SLAVE1_DB=" "$CONFIG_FILE" | cut -d '=' -f2)
+
+SLAVE2_IP_CFG=$(grep "^SLAVE2_IP=" "$CONFIG_FILE" | cut -d '=' -f2)
+SLAVE2_PORT=$(grep "^SLAVE2_PORT=" "$CONFIG_FILE" | cut -d '=' -f2)
+SLAVE2_DB=$(grep "^SLAVE2_DB=" "$CONFIG_FILE" | cut -d '=' -f2)
 
 LOCAL_IPS=$(hostname -I)
-NODE_ROLE=""
+NODE_ROLE="unknown"
 
 for ip in $LOCAL_IPS; do
-    if [ "$ip" == "$MASTER_IP_CFG" ]; then
+    if [[ "$ip" == "$MASTER_IP_CFG" ]]; then
         NODE_ROLE="master"
         break
-    elif [ "$ip" == "$SLAVE1_IP_CFG" ]; then
+
+    elif [[ "$ip" == "$SLAVE1_IP_CFG" ]]; then
         NODE_ROLE="slave1"
         break
-    elif [ "$ip" == "$SLAVE2_IP_CFG" ]; then
+
+    elif [[ "$ip" == "$SLAVE2_IP_CFG" ]]; then
         NODE_ROLE="slave2"
         break
     fi
 done
 
 echo " Detected Local IP : $LOCAL_IPS"
-echo " Identified Node   : [ ${NODE_ROLE:-UNKNOWN} ]"
+echo " Identified Node   : [ $NODE_ROLE ]"
 echo "=========================================="
 
 case "$NODE_ROLE" in
@@ -58,7 +63,6 @@ case "$NODE_ROLE" in
         make
 
         echo -e "\n[3/3] Starting Master Service..."
-        # پاس دادن آدرس صحیح فایل کانفیگ به فایل اجرایی مستر
         ./master_node "$CONFIG_FILE"
         ;;
 
@@ -72,8 +76,12 @@ case "$NODE_ROLE" in
         make clean > /dev/null 2>&1
         make
 
-        echo -e "\n[3/3] Starting Slave 1 Service on $SLAVE1_IP_CFG:8001..."
-        ./slave_node "$SLAVE1_IP_CFG" 8001 slave1.db
+        echo -e "\n[3/3] Starting Slave 1 Service on $SLAVE1_IP_CFG:$SLAVE1_PORT..."
+        ./slave_node \
+            "$SLAVE1_IP_CFG" \
+            "$SLAVE1_PORT" \
+            "$SLAVE1_DB" \
+            "$CONFIG_FILE"
         ;;
 
     "slave2")
@@ -86,8 +94,12 @@ case "$NODE_ROLE" in
         make clean > /dev/null 2>&1
         make
 
-        echo -e "\n[3/3] Starting Slave 2 Service on $SLAVE2_IP_CFG:8002..."
-        ./slave_node "$SLAVE2_IP_CFG" 8002 slave2.db
+        echo -e "\n[3/3] Starting Slave 2 Service on $SLAVE2_IP_CFG:$SLAVE2_PORT..."
+        ./slave_node \
+            "$SLAVE2_IP_CFG" \
+            "$SLAVE2_PORT" \
+            "$SLAVE2_DB" \
+            "$CONFIG_FILE"
         ;;
 
     *)
