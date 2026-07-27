@@ -21,7 +21,7 @@ sudo apt install -y build-essential sqlite3 libsqlite3-dev
 ## راهنمای اجرا (اسکریپت اتوماتیک)
 
 ### ۱. دریافت پروژه
-ابتدا مخزن را روی تمامی ماشین‌های مجازی (Master و Slaveها) کلون کنید:
+ابتدا ریپازتوری زیر را روی تمامی ماشین‌های مجازی (Master و Slaveها) کلون کنید:
 
 ```bash
 git clone https://github.com/4rsh1y4/RTEmbeddedSystem_c-distributed-db-iot.git
@@ -34,18 +34,32 @@ cd RTEmbeddedSystem_c-distributed-db-iot/01
 ```bash
 chmod +x scripts/*.sh
 ```
+### ۳. تنظیمات شبکه (فایل مشترک پروژه)
+بخش‌های `01` تا `05` همگی فقط از یک فایل پیکربندی استفاده می‌کنند:
 
-### ۳. تنظیمات شبکه (فایل کانفیگ)
-آدرس‌های IP ماشین‌های مجازی ممکن است تغییر کنند. وارد پوشه `master` شده و فایل `config.txt` را با آدرس‌های IP فعلی شبکه خود تنظیم کنید:
+```text
+project/config.txt
+```
+
+بنابراین فایل `config.txt` داخل پوشه‌های بخش یا پوشه `master` وجود ندارد. قبل از اجرا، از ریشه پروژه فایل `config.txt` را ویرایش کنید؛ قالب آن در `config.example` قرار دارد:
 
 ```text
 MASTER_IP=192.168.x.x
-MASTER_PORT=8080
+MASTER_PORT=<MASTER_PORT>
 MASTER_DB=master.db
 
-SLAVE1_URL=http://192.168.x.y:8001
-SLAVE2_URL=http://192.168.x.z:8002
+SLAVE1_IP=192.168.x.y
+SLAVE1_PORT=<SLAVE1_PORT>
+SLAVE1_DB=slave1.db
+
+SLAVE2_IP=192.168.x.z
+SLAVE2_PORT=<SLAVE2_PORT>
+SLAVE2_DB=slave2.db
+
+MASTER_SLAVE_TOKEN=<LONG_RANDOM_SECRET>
 ```
+
+آدرس‌ها، پورت‌ها و مسیرهای پایگاه‌داده از همین فایل مشترک خوانده می‌شوند. مقدار `MASTER_SLAVE_TOKEN` نیز کلید داخلی ارتباطمان است و باید قبل از اجرای این سیستم، با یک مقدار تصادفی طولانی جایگزین شود. مسیر نسبی دیتابیس Master نسبت به پوشه `01/master/` و مسیر نسبی دیتابیس Slaveها نسبت به `01/slave/` تفسیر می‌شود.
 
 ### ۴. راه‌اندازی و اجرای نودها (بسیار ساده)
 با استفاده از اسکریپت هوشمند مدیریت نودها، نیازی به کامپایل دستی یا ساخت جداگانه دیتابیس نیست. این اسکریپت از روی آدرس IP ماشین، به صورت خودکار تشخیص می‌دهد که این سیستم Master است یا Slave، سپس دیتابیس مربوطه را ساخته، کد را کامپایل کرده و سرور را اجرا می‌کند.
@@ -55,6 +69,31 @@ SLAVE2_URL=http://192.168.x.z:8002
 ./scripts/build_and_run.sh
 ```
 
+اسکریپت به‌طور پیش‌فرض نقش نود را با IP محلی تشخیص می‌دهد. برای اجرای آزمایشی چند نود روی یک ماشین یا زمانی که تشخیص IP مناسب نیست، نقش را می‌توان بدون تغییر کد مشخص کرد:
+```bash
+NODE_ROLE_OVERRIDE=slave1 ./scripts/build_and_run.sh
+```
+همچنین می‌توان فایل پیکربندی دیگری را انتخاب کرد:
+```bash
+CONFIG_FILE=/path/to/config.txt NODE_ROLE_OVERRIDE=master ./scripts/build_and_run.sh
+```
+
+---
+
+## قرارداد ورودی API
+درخواست بخش اول باید **هر دو** پارامتر زیر را داشته باشد:
+
+- `type`: نوع سنسور، مانند `temperature` یا `humidity`
+- `id`: شناسه سنسور، مانند `101`
+
+نمونه:
+```bash
+curl -s "http://<MASTER_IP>:<MASTER_PORT>/api/sensor?type=temperature&id=101"
+```
+
+اگر یکی از پارامترها ارسال نشود یا قالب آن نامعتبر باشد، Master پاسخ `400 Bad Request` می‌دهد. همچنین شناسه درست با نوع اشتباه، داده‌ای برنمی‌گرداند و نتیجه `404 Not Found` خواهد بود.
+
+
 ---
 
 ## تست و ارزیابی شبکه
@@ -62,7 +101,7 @@ SLAVE2_URL=http://192.168.x.z:8002
 پس از بالا آمدن تمام نودها، می‌توانید مکانیزم مسیریابی (Routing) را با ارسال درخواست به IP ماشین Master بررسی کنید. پایگاه‌های داده (`.db`) به همراه پروژه قرار داده شده‌اند و شامل داده‌های اولیه هستند.
 
 **تست خودکار (Automated Testing):**
-برای اجرای خودکار هر ۴ سناریوی تست (Local Read, Async Route x2, 404 Not Found)، اسکریپت زیر را اجرا کنید تا نتایج به صورت قالب‌بندی شده نمایش داده شوند:
+برای اجرای خودکار سناریوهای مسیریابی، اعتبارسنجی و کنترل دسترسی (Local Read, Async Route x2, 404 Not Found)، اسکریپت زیر را اجرا کنید تا نتایج به صورت قالب‌بندی شده نمایش داده شوند:
 ```bash
 ./scripts/test_requests.sh
 ```
@@ -71,21 +110,21 @@ SLAVE2_URL=http://192.168.x.z:8002
 
 * **تست ۱: دریافت داده‌ی موجود در خودِ Master (بدون پرش شبکه‌ای)**
 ```bash
-curl -s "http://<MASTER_IP>:8080/api/sensor?id=101"
+curl -s "http://<MASTER_IP>:<MASTER_PORT>/api/sensor?type=temperature&id=101"
 ```
 
 * **تست ۲: دریافت داده از Slave 1 (مسیریابی اتوماتیک)**
 ```bash
-curl -s "http://<MASTER_IP>:8080/api/sensor?id=204"
+curl -s "http://<MASTER_IP>:<MASTER_PORT>/api/sensor?type=co2&id=204"
 ```
 
 * **تست ۳: دریافت داده از Slave 2**
 ```bash
-curl -s "http://<MASTER_IP>:8080/api/sensor?id=304"
+curl -s "http://<MASTER_IP>:<MASTER_PORT>/api/sensor?type=smoke&id=304"
 ```
 
 * **تست ۴: داده‌ی ناموجود (بررسی عملکرد Error Handling)**
 ```bash
-curl -s "http://<MASTER_IP>:8080/api/sensor?id=999"
+curl -s "http://<MASTER_IP>:<MASTER_PORT>/api/sensor?type=temperature&id=999"
 ```
 > **نکته:** در حین اجرای تست‌های بالا، ترمینال ماشین Master را مشاهده کنید تا لاگ‌های مربوط به جستجوی نامتقارن (Async HTTP Requests) در شبکه را به صورت زنده ببینید.
