@@ -1,8 +1,0 @@
-# Master Configuration
-MASTER_IP=192.168.54.134
-MASTER_PORT=8080
-MASTER_DB=master.db
-
-# Slaves Configuration
-SLAVE1_URL=http://192.168.54.136:8001
-SLAVE2_URL=http://192.168.54.133:8002

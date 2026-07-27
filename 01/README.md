@@ -1,5 +1,5 @@
 # Distributed IoT Sensor Network 
-**Developer:** Arshia Noroozi | **Student ID:** 402170562
+**Developer:** Arshiya Noroozi | **Student ID:** 402170562
 
 ## معرفی پروژه
 این پروژه یک سیستم پایگاه‌داده توزیع‌شده (Distributed Database) برای مدیریت داده‌های سنسورهای اینترنت اشیا (IoT) است. سیستم با زبان ++C پیاده‌سازی شده و از کتابخانه `mongoose` برای ارتباطات شبکه (HTTP Async Routing) و `sqlite3` برای ذخیره‌سازی داده‌ها بهره می‌برد. 
@@ -35,13 +35,12 @@ cd RTEmbeddedSystem_c-distributed-db-iot/01
 chmod +x scripts/*.sh
 ```
 ### ۳. تنظیمات شبکه (فایل مشترک پروژه)
-بخش‌های `01` تا `05` همگی فقط از یک فایل پیکربندی استفاده می‌کنند:
+بخش‌های `01` تا `06` همگی فقط از یک فایل پیکربندی استفاده می‌کنند:
 
 ```text
 project/config.txt
 ```
-
-بنابراین فایل `config.txt` داخل پوشه‌های بخش یا پوشه `master` وجود ندارد. قبل از اجرا، از ریشه پروژه فایل `config.txt` را ویرایش کنید؛ قالب آن در `config.example` قرار دارد:
+ قبل از اجرا، از ریشه پروژه فایل `config.txt` را ویرایش کنید و مشخصات و آیپی های سیستم خودتان رو قرار بدهید.
 
 ```text
 MASTER_IP=192.168.x.x
