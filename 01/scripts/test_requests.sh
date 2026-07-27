@@ -6,11 +6,15 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BASE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-CONFIG_FILE="$BASE_DIR/master/config.txt"
+
+# پیدا کردن فایل کانفیگ از روت پروژه یا از طریق متغیر محیطی
+CONFIG_FILE="${CONFIG_FILE:-$BASE_DIR/../config.txt}"
 
 if [ -f "$CONFIG_FILE" ]; then
     MASTER_IP=$(grep -E "^MASTER_IP=" "$CONFIG_FILE" | cut -d'=' -f2 | tr -d '\r' | tr -d ' ')
     MASTER_PORT=$(grep -E "^MASTER_PORT=" "$CONFIG_FILE" | cut -d'=' -f2 | tr -d '\r' | tr -d ' ')
+else
+    echo "[!] Warning: Configuration file not found at $CONFIG_FILE"
 fi
 
 MASTER_IP=${MASTER_IP:-"127.0.0.1"}

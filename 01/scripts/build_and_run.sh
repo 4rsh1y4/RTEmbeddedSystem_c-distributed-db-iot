@@ -6,7 +6,9 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BASE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-CONFIG_FILE="$BASE_DIR/master/config.txt"
+
+# پیدا کردن فایل کانفیگ از روت پروژه یا از طریق متغیر محیطی (در صورت ست شدن)
+CONFIG_FILE="${CONFIG_FILE:-$BASE_DIR/../config.txt}"
 
 echo "=========================================="
 echo "    Distributed IoT System Bootstrapper   "
@@ -56,7 +58,8 @@ case "$NODE_ROLE" in
         make
 
         echo -e "\n[3/3] Starting Master Service..."
-        ./master_node config.txt
+        # پاس دادن آدرس صحیح فایل کانفیگ به فایل اجرایی مستر
+        ./master_node "$CONFIG_FILE"
         ;;
 
     "slave1")
@@ -89,7 +92,7 @@ case "$NODE_ROLE" in
 
     *)
         echo "ERROR: Machine IP does not match MASTER_IP, SLAVE1_IP, or SLAVE2_IP in config.txt!"
-        echo "Please verify master/config.txt IP addresses."
+        echo "Please verify $CONFIG_FILE IP addresses."
         exit 1
         ;;
 esac
