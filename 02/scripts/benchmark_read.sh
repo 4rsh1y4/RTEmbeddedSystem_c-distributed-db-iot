@@ -95,7 +95,6 @@ run_round() {
         echo " => Average Time for $round_name: $avg_time ms"
         echo "-----------------------------------------------------"
     fi
-
     echo
 }
 
