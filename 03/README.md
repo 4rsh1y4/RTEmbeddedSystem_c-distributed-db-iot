@@ -1,130 +1,161 @@
 <div dir="rtl">
 
-# IoT Distributed System - Part 3: MQTT Integration
-**Author:** Arshiya Noroozi 
-**Student ID:** 402170562
+# سیستم توزیع‌شده IoT — بخش سوم: MQTT
 
-این پروژه پیاده‌سازی فاز سوم از یک سیستم توزیع‌شده اینترنت اشیا (IoT) است. در این فاز، سیستم از یک معماری صرفاً مبتنی بر HTTP به یک معماری صنعتی اینترنت اشیا ارتقا یافته و نود Master به عنوان یک IoT Gateway، درخواست‌ها را از طریق پروتکل **MQTT (نسخه 3.1.1)** با سطح کیفیت خدمات **QoS 1** پردازش می‌کند.
+**نام:** عرشیا نوروزی  
+**شماره دانشجویی:** 402170562
+
+در بخش سوم، پروتکل MQTT به سیستم اضافه شده است. نود Master درخواست‌ها را از طریق Topic درخواست دریافت می‌کند و پاسخ نهایی را با QoS 1 روی Topic پاسخ منتشر می‌کند. لایه‌های SQLite و Memcached بخش قبل نیز حفظ شده‌اند.
 
 ---
-## 1. نیازمندی‌ها و نصب پیش‌نیازها (Dependencies)
-برای کامپایل و اجرای این فاز از ، سیستم شما باید به کامپایلر C++، پایگاه‌داده SQLite، سرویس کشینگ Memcached و همچنین بروکر MQTT مجهز باشد.
 
-برای نصب تمامی پیش‌نیازهای پروژه در توزیع‌های مبتنی بر دبیان/اوبونتو، دستور زیر را اجرا کنید:
+## پیش‌نیازها
 
-<div dir="ltr">
+<div dir="ltr" align="left">
 
 ```bash
 sudo apt update
-sudo apt install -y build-essential sqlite3 libsqlite3-dev memcached libmemcached-dev mosquitto mosquitto-clients libmosquitto-dev curl nc
+sudo apt install -y build-essential sqlite3 libsqlite3-dev memcached libmemcached-dev mosquitto mosquitto-clients libmosquitto-dev curl netcat-openbsd
 ```
 
 </div>
 
-پس از نصب، سرویس‌های Memcached و Mosquitto معمولاً به صورت خودکار اجرا می‌شوند. برای اطمینان از وضعیت اجرای آن‌ها (پورت‌های 11211 و 1883) می‌توانید از دستورات زیر استفاده کنید:
- 
-<div dir="ltr">
+روی هر سه ماشین:
+
+<div dir="ltr" align="left">
 
 ```bash
-sudo systemctl status memcached
-sudo systemctl status mosquitto
+sudo systemctl enable --now memcached
 ```
 
 </div>
 
----
+روی Master:
 
-### پیکربندی و اعمال تنظیمات بروکر (Mosquitto)
-برای عملکرد صحیح سیستم (ارتباط کلاینت‌ها بدون نیاز به پسورد روی پورت پیش‌فرض)، فایل پیکربندی `mosquitto.conf` در پوشه ریشه پروژه قرار داده شده است.
-برای اعمال این تنظیمات روی بروکرِ سیستم، فایل را در مسیر `conf.d` کپی کرده و سرویس را ری‌استارت کنید:
-
-<div dir="ltr">
+<div dir="ltr" align="left">
 
 ```bash
-sudo cp mosquitto.conf /etc/mosquitto/conf.d/iot_project.conf
-sudo systemctl restart mosquitto
-```
-**نکته مهم در خصوص اجرای خودکار:**
-
-به منظور سهولت در راه‌اندازی، اسکریپت `build_and_run.sh` به گونه‌ای توسعه یافته است که پس از تشخیص نود Master، به صورت کاملاً خودکار فایل کانفیگ `mosquitto.conf` را در مسیر استاندارد لینوکس (`/etc/mosquitto/conf.d/`) کپی کرده و سرویس بروکر را ری‌استارت می‌کند. بنابراین **نیازی به اعمال دستی این تنظیمات نیست.**
-
-*(در صورت نیاز به بررسی دستی، کدهای مربوط به این عملیات در بخش master اسکریپت build_and_run.sh مشخص است.).*
-
-## 2. ساختار Topicهای طراحی شده
-در این سیستم، نود Master نقش یک پل ارتباطی (Bridge) را ایفا می‌کند. ساختار تاپیک‌ها به شکل زیر طراحی شده است:
-
-*   **`sensor/request` :** 
-کلاینت‌ها برای دریافت اطلاعات یک سنسور، `sensor_id` مورد نظر (مثلاً `201`) را در این تاپیک Publish می‌کنند. نود مستر همواره به این تاپیک گوش می‌دهد.
-*   **`sensor/response` :** 
-مستر پس از دریافت درخواست و استخراج داده‌ها (از کش، دیتابیس لوکال یا مسیردهی به Slaveها)، نتیجه‌ی نهایی را در قالب یک فایل JSON در این تاپیک Publish می‌کند تا کلاینت‌ها آن را دریافت کنند.
-
----
-
-## 3. نحوه اجرای خودکار سیستم
-برای راه‌اندازی کل شبکه شامل دیتابیس‌ها، لایه کش و نودهای متصل به MQTT، از اسکریپت هوشمند راه‌اندازی استفاده می‌شود. این اسکریپت با بررسی IP لوکال ماشین، نقش آن (Master یا Slave) را تشخیص داده و کدهای مربوطه را کامپایل و اجرا می‌کند.
-
-برای راه‌اندازی در تمام ماشین‌های کلاستر دستور زیر را اجرا کنید:
-
-<div dir="ltr">
-
-```bash
-cd 03/scripts
-chmod +x *.sh
-./build_and_run.sh
+sudo cp 03/mosquitto.conf /etc/mosquitto/conf.d/iot_project.conf
+sudo systemctl enable --now mosquitto
 ```
 
 </div>
 
 ---
 
-## 4. نحوه ارسال و دریافت درخواست با ابزارهای MQTT (تست دستی)
-پس از اجرای سیستم، می‌توانید با استفاده از ابزارهای استاندارد `mosquitto_sub` و `mosquitto_pub` عملکرد شبکه را تست کنید.
+## تنظیمات MQTT
 
-**گام اول (گوش دادن به پاسخ‌ها):**
-یک ترمینال باز کرده و در تاپیک پاسخ‌ها با QoS 1 عضو شوید:
+تنظیمات زیر در فایل `config.txt` ریشه پروژه قرار دارند:
 
-<div dir="ltr">
+<div dir="ltr" align="left">
 
-```bash
-mosquitto_sub -h localhost -t "sensor/response" -q 1
+```ini
+MQTT_BROKER_HOST=127.0.0.1
+MQTT_BROKER_PORT=1883
+MQTT_REQUEST_TOPIC=sensor/request
+MQTT_RESPONSE_TOPIC=sensor/response
+MQTT_QOS=1
 ```
 
 </div>
 
-**گام دوم (ارسال درخواست):**
-در یک ترمینال دیگر، آیدی سنسور مورد نظر (مثلاً `204`) را به تاپیک درخواست‌ها Publish کنید:
+قالب پیام درخواست:
 
-<div dir="ltr">
+<div dir="ltr" align="left">
 
-```bash
-mosquitto_pub -h localhost -t "sensor/request" -m "204" -q 1
+```text
+sensor_type|sensor_id
 ```
 
 </div>
 
-*(پس از اجرای این دستور، پاسخ JSON شامل مقدار سنسور و زمان پاسخ‌دهی فوراً در ترمینال اول چاپ خواهد شد).*
+مثال:
+
+<div dir="ltr" align="left">
+
+```text
+temperature|101
+co2|204
+smoke|304
+```
+
+</div>
 
 ---
 
-## 5. اجرای اسکریپت تست سرعت (benchmark_mqtt)
-برای مقایسه عملکرد سیستم توزیع‌شده در بستر MQTT و بررسی کارایی لایه‌ی کشینگ (Cache Hit در برابر Cache Miss)، اسکریپت خودکار بنچمارک توسعه داده شده است.
+## اجرای سیستم
 
-برای اجرای این تست:
+اسکریپت زیر را ابتدا روی Slave 1، سپس Slave 2 و در نهایت روی Master اجرا کنید:
 
-<div dir="ltr">
+<div dir="ltr" align="left">
 
 ```bash
-cd 03/scripts
-chmod +x benchmark_mqtt.sh
-./benchmark_mqtt.sh
+cd ~/IoT_Distributed_Project
+chmod +x 03/scripts/*.sh
+./03/scripts/build_and_run.sh
 ```
 
 </div>
 
-### تحلیل مختصر خروجی اسکریپت:
-*   **دور اول (Round 1):** کش Memcached خالی می‌شود و داده‌ها با مواجهه با Cache Miss، از دیتابیس لوکال یا نودهای Slave خوانده شده و پاسخ از طریق شبکه MQTT بازگردانده می‌شود.
-*   **دور دوم (Round 2):** داده‌ها در لایه‌ی RAM کش شده‌اند (Cache Hit). زمان پاسخ‌دهی به شکل چشمگیری (نزدیک به ۵۰ درصد) کاهش می‌یابد که نشان‌دهنده‌ی حذف موفقیت‌آمیزِ گلوگاه دیسک (I/O) در معماری MQTT است.
+این اسکریپت نقش ماشین را از روی IP تشخیص داده، دیتابیس و Memcached را آماده کرده، برنامه را کامپایل و اجرا می‌کند.
 
-*(گزارش کامل تحلیل ساختار ارتباطی، معماری و مقایسه دقیق زمان‌های رفت‌وبرگشت در فایل `report.md` قرار دارد).*
+---
+
+## تست دستی MQTT
+
+در ترمینال اول روی Master:
+
+<div dir="ltr" align="left">
+
+```bash
+mosquitto_sub -h 127.0.0.1 -p 1883 -t "sensor/response" -q 1
+```
+
+</div>
+
+در ترمینال دوم:
+
+<div dir="ltr" align="left">
+
+```bash
+mosquitto_pub -h 127.0.0.1 -p 1883 -t "sensor/request" -m "temperature|101" -q 1
+```
+
+</div>
+
+نمونه درخواست برای Slave 1 و Slave 2:
+
+<div dir="ltr" align="left">
+
+```bash
+mosquitto_pub -h 127.0.0.1 -p 1883 -t "sensor/request" -m "co2|204" -q 1
+mosquitto_pub -h 127.0.0.1 -p 1883 -t "sensor/request" -m "smoke|304" -q 1
+```
+
+</div>
+
+پاسخ به‌صورت JSON شامل اطلاعات سنسور و فیلد `response_time_ms` منتشر می‌شود.
+
+---
+
+## اجرای Benchmark
+
+<div dir="ltr" align="left">
+
+```bash
+cd ~/IoT_Distributed_Project
+./03/scripts/benchmark_mqtt.sh
+```
+
+</div>
+
+اسکریپت ابتدا کش هر سه نود را خالی می‌کند و سپس تمام سنسورها را در دو دور آزمایش می‌کند:
+
+- دور اول: `Cache Miss` و خواندن از SQLite
+- دور دوم: `Cache Hit` و خواندن از Memcached
+
+در پایان، میانگین زمان پاسخ هر دور نمایش داده می‌شود.
+
+گزارش کامل‌تر در فایل `report.md` قرار دارد.
 
 </div>

@@ -1,25 +1,23 @@
 #!/bin/bash
-set -euo pipefail
+set -e
 
-MEMCACHED_PORT=${1:-11211}
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BASE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+CONFIG_FILE="${1:-$BASE_DIR/../config.txt}"
 
-echo "[Memcached] Initializing Memcached service on localhost:$MEMCACHED_PORT..."
-
-# بررسی نصب بودن پیش‌نیازها
-if ! command -v memcached >/dev/null 2>&1; then
-    echo "Error: memcached is not installed. Run: sudo apt install -y memcached libmemcached-dev"
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "ERROR: Configuration file not found at $CONFIG_FILE"
     exit 1
 fi
 
-sudo systemctl start memcached || true
+MEMCACHED_HOST=$(grep "^MEMCACHED_HOST=" "$CONFIG_FILE" | cut -d '=' -f2 | tr -d ' \r')
+MEMCACHED_PORT=$(grep "^MEMCACHED_PORT=" "$CONFIG_FILE" | cut -d '=' -f2 | tr -d ' \r')
 
-# پاک‌سازی کامل کش برای شروع یک تست تمیز
-if command -v nc >/dev/null 2>&1; then
-    echo -e "flush_all\r" | nc -q 1 127.0.0.1 "$MEMCACHED_PORT" >/dev/null 2>&1 || true
-    echo "[Memcached] Cache flushed successfully."
-else
-    echo "[Memcached] Warning: netcat (nc) not installed. Restarting service to flush..."
-    sudo systemctl restart memcached
+if ! systemctl is-active --quiet memcached; then
+    echo "ERROR: Memcached is not running."
+    echo "Run once: sudo systemctl enable --now memcached"
+    exit 1
 fi
 
-echo "[Memcached] Active and ready!"
+printf "flush_all\r\n" | nc -q 1 "$MEMCACHED_HOST" "$MEMCACHED_PORT" >/dev/null
+echo "[Memcached] Cache flushed successfully."

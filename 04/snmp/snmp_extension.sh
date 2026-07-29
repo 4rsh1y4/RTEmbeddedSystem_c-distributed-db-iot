@@ -1,73 +1,106 @@
 #!/bin/bash
+
 # Script: snmp_extension.sh
+# Description: Net-SNMP pass extension for all distributed sensors.
 
-MODE=$1
-REQ_OID=$2
-BASE_OID=".1.3.6.1.4.1.402170562"
+MODE="$1"
+REQ_OID="$2"
+CONFIG_FILE="${SNMP_RUNTIME_CONFIG:-/opt/iot_project/snmp_runtime.conf}"
 
-# این مقدار توسط اسکریپت راه‌انداز با آی‌پی واقعی سیستم جایگزین خواهد شد
-MASTER_IP="REPLACE_ME_IP"
+[ -f "$CONFIG_FILE" ] || exit 0
 
-VALID_OIDS=(
-    "$BASE_OID.101.1" "$BASE_OID.101.2" "$BASE_OID.101.3"
-    "$BASE_OID.102.1" "$BASE_OID.102.2" "$BASE_OID.102.3"
-    "$BASE_OID.201.1" "$BASE_OID.201.2" "$BASE_OID.201.3"
-    "$BASE_OID.204.1" "$BASE_OID.204.2" "$BASE_OID.204.3"
-    "$BASE_OID.301.1" "$BASE_OID.301.2" "$BASE_OID.301.3"
-    "$BASE_OID.304.1" "$BASE_OID.304.2" "$BASE_OID.304.3"
+get_config() { grep "^$1=" "$CONFIG_FILE" | cut -d '=' -f2- | tr -d '\r'; }
+
+MASTER_IP=$(get_config MASTER_IP | tr -d ' ')
+MASTER_PORT=$(get_config MASTER_PORT | tr -d ' ')
+BASE_OID=$(get_config SNMP_BASE_OID | tr -d ' ')
+DATA_DIR=$(get_config SNMP_DATA_DIR)
+
+CSV_FILES=(
+    "$DATA_DIR/master_sensors.csv"
+    "$DATA_DIR/slave1_sensors.csv"
+    "$DATA_DIR/slave2_sensors.csv"
 )
+
+[ -n "$MASTER_IP" ] && [ -n "$MASTER_PORT" ] && [ -n "$BASE_OID" ] || exit 0
+[[ "$BASE_OID" == .* ]] || BASE_OID=".$BASE_OID"
+[[ "$REQ_OID" == .* ]] || REQ_OID=".$REQ_OID"
+
+for file in "${CSV_FILES[@]}"; do
+    [ -f "$file" ] || exit 0
+done
+
+mapfile -t SENSOR_IDS < <(
+    awk -F',' 'FNR>1 {
+        gsub(/\r/,"",$1)
+        if ($1~/^[0-9]+$/ && !seen[$1]++) print $1
+    }' "${CSV_FILES[@]}" | sort -n
+)
+
+VALID_OIDS=()
+
+for id in "${SENSOR_IDS[@]}"; do
+    VALID_OIDS+=(
+        "$BASE_OID.$id.1"
+        "$BASE_OID.$id.2"
+        "$BASE_OID.$id.3"
+    )
+done
 
 TARGET_OID=""
 
-if [ "$MODE" == "-g" ]; then
+if [ "$MODE" = "-g" ]; then
     for oid in "${VALID_OIDS[@]}"; do
-        if [ "$oid" == "$REQ_OID" ]; then
-            TARGET_OID=$REQ_OID
-            break
-        fi
+        [ "$oid" = "$REQ_OID" ] && TARGET_OID="$oid" && break
     done
-elif [ "$MODE" == "-n" ]; then
-    TARGET_OID=$( (echo "$REQ_OID"; printf "%s\n" "${VALID_OIDS[@]}") | sort -V | awk -v req="$REQ_OID" '
-        $0 == req { found=1; next }
-        found == 1 && $0 != req { print $0; exit }
-    ' )
-    
-    IS_VALID=0
-    for oid in "${VALID_OIDS[@]}"; do
-        if [ "$oid" == "$TARGET_OID" ]; then
-            IS_VALID=1
-            break
-        fi
-    done
-    if [ "$IS_VALID" -eq 0 ]; then
-        exit 0
-    fi
-fi
-
-if [ -z "$TARGET_OID" ]; then
+elif [ "$MODE" = "-n" ]; then
+    TARGET_OID=$(
+        printf '%s\n' "$REQ_OID" "${VALID_OIDS[@]}" |
+        sort -Vu |
+        awk -v req="$REQ_OID" '$0==req {found=1; next} found {print; exit}'
+    )
+else
     exit 0
 fi
 
-SENSOR_ID=$(echo "$TARGET_OID" | awk -F'.' '{print $(NF-1)}')
-ATTR_ID=$(echo "$TARGET_OID" | awk -F'.' '{print $NF}')
+[ -n "$TARGET_OID" ] || exit 0
 
-JSON_RES=$(curl -s --max-time 2 "http://${MASTER_IP}:8080/api/sensor?id=$SENSOR_ID")
+SENSOR_ID=$(awk -F'.' '{print $(NF-1)}' <<< "$TARGET_OID")
+ATTR_ID=$(awk -F'.' '{print $NF}' <<< "$TARGET_OID")
 
-if [ -z "$JSON_RES" ] || echo "$JSON_RES" | grep -q '"error"'; then
-    exit 0
-fi
+META=$(
+    awk -F',' -v id="$SENSOR_ID" 'FNR>1 {
+        gsub(/\r/,"",$0)
+        if ($1==id) {
+            print $2 "|" $4 "|" $6
+            exit
+        }
+    }' "${CSV_FILES[@]}"
+)
+
+[ -n "$META" ] || exit 0
+IFS='|' read -r SENSOR_TYPE LOCATION CSV_UNIT <<< "$META"
+
+JSON_RES=$(
+    curl -fsS --max-time 3 -G \
+        "http://$MASTER_IP:$MASTER_PORT/api/sensor" \
+        --data-urlencode "type=$SENSOR_TYPE" \
+        --data-urlencode "id=$SENSOR_ID" 2>/dev/null
+) || exit 0
+
+echo "$JSON_RES" | grep -q '"error"' && exit 0
 
 NAME=$(echo "$JSON_RES" | grep -o '"sensor_name": *"[^"]*"' | cut -d'"' -f4)
 UNIT=$(echo "$JSON_RES" | grep -o '"unit": *"[^"]*"' | cut -d'"' -f4)
 VALUE=$(echo "$JSON_RES" | grep -o '"value": *[-0-9.]*' | cut -d':' -f2 | tr -d ' ')
 
-echo "$TARGET_OID"
-echo "string"
+[ -n "$UNIT" ] || UNIT="$CSV_UNIT"
 
-if [ "$ATTR_ID" == "1" ]; then
-    echo "$NAME"
-elif [ "$ATTR_ID" == "2" ]; then
-    echo "IoT Sensor | Unit: $UNIT"
-elif [ "$ATTR_ID" == "3" ]; then
-    echo "$VALUE"
-fi
+case "$ATTR_ID" in
+    1) RESULT="$NAME" ;;
+    2) RESULT="Type: $SENSOR_TYPE | Location: $LOCATION | Unit: $UNIT" ;;
+    3) RESULT="$VALUE" ;;
+    *) exit 0 ;;
+esac
+
+printf '%s\nstring\n%s\n' "$TARGET_OID" "$RESULT"
