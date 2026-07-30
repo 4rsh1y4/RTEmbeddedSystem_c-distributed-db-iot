@@ -1,0 +1,16 @@
+[Unit]
+Description=Distributed IoT Alert Daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=__PROJECT_DIR__
+ExecStart=__DAEMON_PATH__ __CONFIG_FILE__
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
